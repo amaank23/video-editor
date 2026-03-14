@@ -30,7 +30,6 @@ export function deleteFile(filePath: string): void {
   }
 }
 
-// Delete exports older than 1 hour
 export function cleanOldExports(): void {
   const oneHour = 60 * 60 * 1000;
   const now = Date.now();

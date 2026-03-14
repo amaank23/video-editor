@@ -61,12 +61,6 @@ export function extractThumbnails(
         timestamps.push((duration / count) * i);
       }
 
-      const outputPattern = path.join(outputDir, `thumb_%03d.jpg`);
-      const filterComplex = timestamps
-        .map((t, i) => `[0:v]select='eq(n\\,${Math.floor(t * (metadata.streams.find(s => s.codec_type === 'video')?.r_frame_rate ? eval(metadata.streams.find(s => s.codec_type === 'video')!.r_frame_rate!) : 30))})'[out${i}]`)
-        .join(';');
-
-      // Simpler approach: use multiple -ss seeks
       const promises = timestamps.map(
         (t, i) =>
           new Promise<string>((res, rej) => {
@@ -80,7 +74,7 @@ export function extractThumbnails(
                 try {
                   const data = fs.readFileSync(outFile);
                   const b64 = `data:image/jpeg;base64,${data.toString('base64')}`;
-                  fs.unlinkSync(outFile); // clean up temp file
+                  fs.unlinkSync(outFile);
                   res(b64);
                 } catch (e) {
                   rej(e);
