@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Server
+server/node_modules
+server/dist
+server/uploads/*
+server/exports/*
+!server/uploads/.gitkeep
+!server/exports/.gitkeep

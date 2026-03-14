@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  settings  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tracks    Track[]
+  assets    Asset[]
+}
+
+model Track {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type      String
+  name      String
+  order     Int
+  locked    Boolean  @default(false)
+  muted     Boolean  @default(false)
+  collapsed Boolean  @default(false)
+  clips     Clip[]
+}
+
+model Clip {
+  id          String  @id @default(cuid())
+  trackId     String
+  track       Track   @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  type        String
+  startTimeMs Float
+  durationMs  Float
+  trimStartMs Float   @default(0)
+  trimEndMs   Float
+  transform   Json
+  animations  Json    @default("[]")
+  name        String
+  locked      Boolean @default(false)
+  visible     Boolean @default(true)
+  properties  Json
+}
+
+model Asset {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name          String
+  type          String
+  mimeType      String
+  filePath      String
+  serveUrl      String
+  fileSizeBytes BigInt
+  durationMs    Float?
+  width         Int?
+  height        Int?
+  fps           Float?
+  thumbnails    Json     @default("[]")
+  createdAt     DateTime @default(now())
+}
