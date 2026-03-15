@@ -5,6 +5,7 @@ import MediaPanel from "@/components/panels/MediaPanel/MediaPanel";
 import CanvasPreview from "@/components/preview/CanvasPreview";
 import PropertiesPanel from "@/components/panels/PropertiesPanel/PropertiesPanel";
 import Timeline from "@/components/timeline/Timeline";
+import ErrorBoundary from "@/components/ui/ErrorBoundary";
 
 export default function EditorShell() {
   return (
@@ -23,7 +24,9 @@ export default function EditorShell() {
 
         {/* Center: Canvas Preview */}
         <div className="flex-1 flex flex-col items-center justify-center bg-neutral-950 min-w-0">
-          <CanvasPreview />
+          <ErrorBoundary label="Canvas">
+            <CanvasPreview />
+          </ErrorBoundary>
         </div>
 
         {/* Right: Properties Panel */}
@@ -34,7 +37,9 @@ export default function EditorShell() {
 
       {/* Bottom: Timeline */}
       <div className="flex-none h-64 border-t border-neutral-700">
-        <Timeline />
+        <ErrorBoundary label="Timeline">
+          <Timeline />
+        </ErrorBoundary>
       </div>
     </div>
   );

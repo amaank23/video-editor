@@ -3,40 +3,31 @@
 import { useEffect, useRef } from 'react';
 import PlaybackControls from './PlaybackControls';
 import { useProjectStore } from '@/stores/projectStore';
+import { usePlayback } from '@/hooks/usePlayback';
 
 export default function CanvasPreview() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const settings = useProjectStore((s) => s.project.settings);
+  const settings     = useProjectStore((s) => s.project.settings);
 
-  // Paint a black canvas background on mount and when settings change
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.fillStyle = settings.backgroundColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }, [settings.backgroundColor]);
+  // Wire up playback engine, renderer, and audio engine
+  usePlayback(canvasRef);
 
-  // Maintain aspect ratio within the container using ResizeObserver
+  // Maintain aspect ratio inside the container
   useEffect(() => {
     const container = containerRef.current;
-    const canvas = canvasRef.current;
+    const canvas    = canvasRef.current;
     if (!container || !canvas) return;
 
     const aspectRatio = settings.width / settings.height;
 
     function resize() {
-      const cw = container!.clientWidth - 32; // 16px padding each side
+      const cw = container!.clientWidth  - 32;
       const ch = container!.clientHeight - 32;
       let w = cw;
       let h = cw / aspectRatio;
-      if (h > ch) {
-        h = ch;
-        w = ch * aspectRatio;
-      }
-      canvas!.style.width = `${w}px`;
+      if (h > ch) { h = ch; w = ch * aspectRatio; }
+      canvas!.style.width  = `${w}px`;
       canvas!.style.height = `${h}px`;
     }
 
