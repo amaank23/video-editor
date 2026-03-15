@@ -14,6 +14,7 @@ export default function ExportModal() {
   const exportProgress  = useEditorStore((s) => s.exportProgress);
   const durationMs      = useProjectStore((s) => s.project.timeline.durationMs);
   const fps             = useProjectStore((s) => s.project.settings.fps);
+  const clips           = useProjectStore((s) => s.project.clips);
 
   const { startExport, cancel } = useExport();
 
@@ -31,8 +32,18 @@ export default function ExportModal() {
 
   if (!open) return null;
 
+  function hasAudioInTimeline(): boolean {
+    return Object.values(clips).some((c) => c.type === 'audio' || c.type === 'video');
+  }
+
   async function handleExport() {
     setError(null);
+
+    if (audio && !hasAudioInTimeline()) {
+      setError('Your timeline has no audio or video clips. Disable "Include audio" or add a video/audio clip first.');
+      return;
+    }
+
     const opts: ExportOptions = {
       resolution,
       fps: exportFps,

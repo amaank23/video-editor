@@ -5,6 +5,7 @@ import os from 'os';
 import { nanoid } from 'nanoid';
 import ffmpeg from 'fluent-ffmpeg';
 import { prisma } from '../../lib/prisma';
+import { probeFile } from '../../shared/ffmpeg';
 import { ensureExportDir } from '../../shared/storage';
 import type { ExportJobStatus, ExportJobOptions } from './export.types';
 
@@ -95,7 +96,8 @@ async function runExport(
       t.clips.map((c) => ({ ...c, properties: c.properties as Record<string, unknown> }))
     );
 
-    // Register asset file paths
+    // Register asset file paths and probe for audio
+    const hasAudioMap = new Map<string, boolean>();
     for (const clip of allClips) {
       const props = clip.properties as Record<string, unknown>;
       const assetId = props.assetId as string | undefined;
@@ -104,6 +106,17 @@ async function runExport(
       if (!asset || assetIndex.has(assetId)) continue;
       assetIndex.set(assetId, assetPaths.length);
       assetPaths.push(asset.filePath);
+      // Probe to check for audio stream (video files only — audio files always have audio)
+      if (asset.type === 'video') {
+        try {
+          const probe = await probeFile(asset.filePath);
+          hasAudioMap.set(assetId, probe.hasAudio);
+        } catch {
+          hasAudioMap.set(assetId, false);
+        }
+      } else if (asset.type === 'audio') {
+        hasAudioMap.set(assetId, true);
+      }
     }
 
     // ── Build filter_complex ───────────────────────────────────────────────
@@ -156,8 +169,9 @@ async function runExport(
         );
         prevVideo = `comp${n}`;
 
-        // Audio track from this video clip
-        if (opts.includeAudio !== false) {
+        // Audio track from this video clip (only if the file has an audio stream)
+        console.log(`[export] clip ${clip.id} assetId=${assetId} hasAudio=${hasAudioMap.get(assetId)}`);
+        if (opts.includeAudio !== false && hasAudioMap.get(assetId)) {
           const vol = (props.volume as number) ?? 1;
           const delaySamples = Math.round(delay * 44100);
           filterParts.push(
@@ -263,10 +277,12 @@ async function runExport(
     cmd = cmd
       .videoCodec('libx264')
       .outputOptions(['-crf', String(crf), '-preset', 'fast', '-movflags', '+faststart'])
-      .audioCodec('aac')
-      .audioBitrate('192k')
       .duration(totalSec)
       .output(outputPath);
+
+    if (audioStreams.length > 0) {
+      cmd = cmd.audioCodec('aac').audioBitrate('192k');
+    }
 
     // Run
     await new Promise<void>((resolve, reject) => {

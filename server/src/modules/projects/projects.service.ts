@@ -33,8 +33,8 @@ export function createProject({ name, settings }: CreateProjectInput) {
   });
 }
 
-export function findProjectById(id: string) {
-  return prisma.project.findUnique({
+export async function findProjectById(id: string) {
+  const project = await prisma.project.findUnique({
     where: { id },
     include: {
       tracks: {
@@ -44,6 +44,14 @@ export function findProjectById(id: string) {
       assets: true,
     },
   });
+  if (!project) return null;
+  return {
+    ...project,
+    assets: project.assets.map((a) => ({
+      ...a,
+      fileSizeBytes: Number(a.fileSizeBytes),
+    })),
+  };
 }
 
 /**
