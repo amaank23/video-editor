@@ -43,6 +43,10 @@ export async function putProject(req: Request, res: Response, next: NextFunction
   const { name, settings } = req.body as { name?: string; settings?: JsonValue };
   try {
     const project = await updateProject(String(req.params.id), { name, settings });
+    if (!project) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
     res.json(project);
   } catch (err) {
     next(err);

@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import TopBar from '@/components/topbar/TopBar';
-import MediaPanel from '@/components/panels/MediaPanel/MediaPanel';
-import CanvasPreview from '@/components/preview/CanvasPreview';
-import PropertiesPanel from '@/components/panels/PropertiesPanel/PropertiesPanel';
-import Timeline from '@/components/timeline/Timeline';
+import TopBar from "@/components/topbar/TopBar";
+import MediaPanel from "@/components/panels/MediaPanel/MediaPanel";
+import CanvasPreview from "@/components/preview/CanvasPreview";
+import PropertiesPanel from "@/components/panels/PropertiesPanel/PropertiesPanel";
+import Timeline from "@/components/timeline/Timeline";
 
 export default function EditorShell() {
   return (

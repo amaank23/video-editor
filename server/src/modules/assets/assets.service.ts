@@ -27,37 +27,43 @@ export async function createAsset({ projectId, file }: CreateAssetInput): Promis
     }
   }
 
-  const asset = await prisma.asset.create({
-    data: {
-      projectId,
-      name: file.originalname,
-      type: assetType,
-      mimeType: file.mimetype,
-      filePath: file.path,
-      serveUrl: getServeUrl(file.filename),
-      fileSizeBytes: BigInt(file.size),
-      durationMs: probeResult?.durationMs ?? null,
-      width: probeResult?.width ?? null,
-      height: probeResult?.height ?? null,
-      fps: probeResult?.fps ?? null,
-      thumbnails,
-    },
-  });
+  try {
+    const asset = await prisma.asset.create({
+      data: {
+        projectId,
+        name: file.originalname,
+        type: assetType,
+        mimeType: file.mimetype,
+        filePath: file.path,
+        serveUrl: getServeUrl(file.filename),
+        fileSizeBytes: BigInt(file.size),
+        durationMs: probeResult?.durationMs ?? null,
+        width: probeResult?.width ?? null,
+        height: probeResult?.height ?? null,
+        fps: probeResult?.fps ?? null,
+        thumbnails,
+      },
+    });
 
-  return {
-    id: asset.id,
-    name: asset.name,
-    type: asset.type,
-    mimeType: asset.mimeType,
-    fileSizeBytes: asset.fileSizeBytes.toString(),
-    serveUrl: asset.serveUrl,
-    durationMs: asset.durationMs,
-    width: asset.width,
-    height: asset.height,
-    fps: asset.fps,
-    thumbnails: asset.thumbnails as string[],
-    createdAt: asset.createdAt.getTime(),
-  };
+    return {
+      id: asset.id,
+      name: asset.name,
+      type: asset.type,
+      mimeType: asset.mimeType,
+      fileSizeBytes: asset.fileSizeBytes.toString(),
+      serveUrl: asset.serveUrl,
+      durationMs: asset.durationMs,
+      width: asset.width,
+      height: asset.height,
+      fps: asset.fps,
+      thumbnails: asset.thumbnails as string[],
+      createdAt: asset.createdAt.getTime(),
+    };
+  } catch (err) {
+    // Clean up the uploaded file so it doesn't orphan on disk
+    deleteFile(file.path);
+    throw err;
+  }
 }
 
 export async function findAssetById(id: string) {

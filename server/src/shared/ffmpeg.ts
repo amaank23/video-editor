@@ -44,13 +44,43 @@ export function probeFile(filePath: string): Promise<ProbeResult> {
   });
 }
 
+/** Extract a single frame at timestamp `t` seconds and return a base64 JPEG data URI. */
+function extractFrame(filePath: string, t: number, index: number, outputDir: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const outFile = path.join(outputDir, `thumb_${String(index).padStart(3, '0')}.jpg`);
+    ffmpeg(filePath)
+      .seekInput(t)
+      .frames(1)
+      .size('160x90')
+      .output(outFile)
+      .on('end', () => {
+        try {
+          const data = fs.readFileSync(outFile);
+          const b64 = `data:image/jpeg;base64,${data.toString('base64')}`;
+          fs.unlinkSync(outFile);
+          resolve(b64);
+        } catch (e) {
+          reject(e);
+        }
+      })
+      .on('error', reject)
+      .run();
+  });
+}
+
+/**
+ * Extract `count` thumbnail frames from a video file.
+ * Processes at most `CONCURRENCY` frames simultaneously to avoid saturating the CPU.
+ */
 export function extractThumbnails(
   filePath: string,
   count: number,
   outputDir: string,
 ): Promise<string[]> {
+  const CONCURRENCY = 4;
+
   return new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(filePath, (err, metadata) => {
+    ffmpeg.ffprobe(filePath, async (err, metadata) => {
       if (err) return reject(err);
 
       const duration = metadata.format.duration ?? 0;
@@ -61,31 +91,23 @@ export function extractThumbnails(
         timestamps.push((duration / count) * i);
       }
 
-      const promises = timestamps.map(
-        (t, i) =>
-          new Promise<string>((res, rej) => {
-            const outFile = path.join(outputDir, `thumb_${String(i).padStart(3, '0')}.jpg`);
-            ffmpeg(filePath)
-              .seekInput(t)
-              .frames(1)
-              .size('160x90')
-              .output(outFile)
-              .on('end', () => {
-                try {
-                  const data = fs.readFileSync(outFile);
-                  const b64 = `data:image/jpeg;base64,${data.toString('base64')}`;
-                  fs.unlinkSync(outFile);
-                  res(b64);
-                } catch (e) {
-                  rej(e);
-                }
-              })
-              .on('error', rej)
-              .run();
-          }),
-      );
+      // Run at most CONCURRENCY frame extractions in parallel
+      const results: string[] = new Array(count);
+      let next = 0;
 
-      Promise.all(promises).then(resolve).catch(reject);
+      async function worker() {
+        while (next < timestamps.length) {
+          const i = next++;
+          results[i] = await extractFrame(filePath, timestamps[i], i, outputDir);
+        }
+      }
+
+      try {
+        await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+        resolve(results);
+      } catch (e) {
+        reject(e);
+      }
     });
   });
 }

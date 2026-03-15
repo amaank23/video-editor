@@ -1,5 +1,6 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import type { JsonValue, CreateProjectInput, UpdateProjectInput } from './projects.types';
+import type { CreateProjectInput, UpdateProjectInput } from './projects.types';
 
 const DEFAULT_SETTINGS = {
   width: 1920,
@@ -45,15 +46,26 @@ export function findProjectById(id: string) {
   });
 }
 
-export function updateProject(id: string, { name, settings }: UpdateProjectInput) {
-  return prisma.project.update({
-    where: { id },
-    data: {
-      ...(name !== undefined && { name }),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ...(settings !== undefined && { settings: settings as any }),
-    },
-  });
+/** Returns null if project not found (P2025), throws on all other errors. */
+export async function updateProject(id: string, { name, settings }: UpdateProjectInput) {
+  try {
+    return await prisma.project.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name }),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...(settings !== undefined && { settings: settings as any }),
+      },
+    });
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === 'P2025'
+    ) {
+      return null;
+    }
+    throw err;
+  }
 }
 
 export function deleteProject(id: string) {

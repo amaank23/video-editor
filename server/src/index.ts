@@ -17,11 +17,24 @@ const PORT = Number(process.env.PORT ?? 4000);
 const CLIENT_URL = process.env.CLIENT_URL ?? 'http://localhost:3000';
 const UPLOAD_DIR = process.env.UPLOAD_DIR ?? './uploads';
 
+// Support comma-separated list of allowed origins (e.g. staging + local)
+const allowedOrigins = new Set(CLIENT_URL.split(',').map((o) => o.trim()));
+
 ensureDirs();
-setInterval(cleanOldExports, 60 * 60 * 1000);
+setInterval(() => { cleanOldExports().catch((e) => console.error('[storage] cleanOldExports failed:', e)); }, 60 * 60 * 1000);
 
 // Middleware
-app.use(cors({ origin: CLIENT_URL, credentials: true }));
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow server-to-server requests (no origin) and any listed origin
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Not allowed by CORS: ${origin}`));
+    }
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 

@@ -25,22 +25,35 @@ export function getServeUrl(filename: string): string {
 }
 
 export function deleteFile(filePath: string): void {
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
+  fs.unlink(filePath, (err) => {
+    if (err && err.code !== 'ENOENT') {
+      console.warn('[storage] Failed to delete file:', filePath, err.message);
+    }
+  });
 }
 
-export function cleanOldExports(): void {
+export async function cleanOldExports(): Promise<void> {
   const oneHour = 60 * 60 * 1000;
   const now = Date.now();
 
-  if (!fs.existsSync(EXPORT_DIR)) return;
+  let files: string[];
+  try {
+    files = await fs.promises.readdir(EXPORT_DIR);
+  } catch {
+    return; // EXPORT_DIR may not exist yet
+  }
 
-  fs.readdirSync(EXPORT_DIR).forEach((file) => {
-    const filePath = path.join(EXPORT_DIR, file);
-    const stat = fs.statSync(filePath);
-    if (now - stat.mtimeMs > oneHour) {
-      fs.unlinkSync(filePath);
-    }
-  });
+  await Promise.all(
+    files.map(async (file) => {
+      const filePath = path.join(EXPORT_DIR, file);
+      try {
+        const stat = await fs.promises.stat(filePath);
+        if (now - stat.mtimeMs > oneHour) {
+          await fs.promises.unlink(filePath);
+        }
+      } catch {
+        // File may have been deleted concurrently — ignore
+      }
+    }),
+  );
 }

@@ -1,125 +1,159 @@
 'use client';
 
+import { useRef, useCallback, useEffect } from 'react';
 import { useProjectStore } from '@/stores/projectStore';
 import { useEditorStore } from '@/stores/editorStore';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { msToTimecode } from '@/lib/utils/time';
-import { useRef, useCallback } from 'react';
+import TrackHeader from './TrackHeader';
+import ClipBlock from './ClipBlock';
+import Playhead from './Playhead';
 
-const TRACK_HEIGHT = 56;
-const HEADER_WIDTH = 120;
+const TRACK_HEIGHT  = 56;
+const HEADER_WIDTH  = 128;
+const MIN_ZOOM      = 10;
+const MAX_ZOOM      = 1000;
+const MAX_TICKS     = 200;
 
 export default function Timeline() {
-  const tracks = useProjectStore((s) => s.project.timeline.tracks);
-  const clips = useProjectStore((s) => s.project.clips);
-  const durationMs = useProjectStore((s) => s.project.timeline.durationMs);
+  useKeyboardShortcuts();
 
-  const playheadMs = useEditorStore((s) => s.playback.playheadMs);
+  const tracks      = useProjectStore((s) => s.project.timeline.tracks);
+  const clips       = useProjectStore((s) => s.project.clips);
+  const durationMs  = useProjectStore((s) => s.project.timeline.durationMs);
+  const clearSelection = useEditorStore((s) => s.clearSelection);
+
+  const playheadMs      = useEditorStore((s) => s.playback.playheadMs);
   const { zoomLevel, scrollLeftMs } = useEditorStore((s) => s.timelineViewport);
-  const setPlayheadMs = useEditorStore((s) => s.setPlayheadMs);
+  const setPlayheadMs   = useEditorStore((s) => s.setPlayheadMs);
   const setScrollLeftMs = useEditorStore((s) => s.setScrollLeftMs);
-  const setZoom = useEditorStore((s) => s.setZoom);
+  const setZoom         = useEditorStore((s) => s.setZoom);
 
-  const rulerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const rulerRef     = useRef<HTMLDivElement>(null);
+  const rulerDragRef = useRef<{ startX: number; startMs: number } | null>(null);
 
-  // Convert ms to pixels
-  const msToX = useCallback((ms: number) => ((ms - scrollLeftMs) / 1000) * zoomLevel, [scrollLeftMs, zoomLevel]);
+  // ms → pixel offset relative to the ruler/clip area (header excluded)
+  const msToX = useCallback(
+    (ms: number) => ((ms - scrollLeftMs) / 1000) * zoomLevel,
+    [scrollLeftMs, zoomLevel],
+  );
 
-  // Click on ruler to seek
-  function handleRulerClick(e: React.MouseEvent<HTMLDivElement>) {
-    const rect = rulerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = e.clientX - rect.left;
-    const clickMs = (x / zoomLevel) * 1000 + scrollLeftMs;
-    setPlayheadMs(Math.max(0, clickMs));
-  }
+  // ── Passive-safe wheel handler ─────────────────────────────────────────
+  // React 19 attaches wheel listeners as passive by default; calling
+  // e.preventDefault() in an onWheel prop is silently ignored.
+  // We attach manually with { passive: false } so Ctrl+scroll zoom works.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
 
-  // Wheel to zoom
-  function handleWheel(e: React.WheelEvent) {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.1 : 0.9;
-      setZoom(zoomLevel * factor);
-    } else {
-      setScrollLeftMs(scrollLeftMs + (e.deltaY / zoomLevel) * 1000 * 10);
+    function handleWheel(e: WheelEvent) {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const { zoomLevel: z } = useEditorStore.getState().timelineViewport;
+        const factor = e.deltaY < 0 ? 1.15 : 0.87;
+        setZoom(Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z * factor)));
+      } else {
+        const { zoomLevel: z, scrollLeftMs: s } = useEditorStore.getState().timelineViewport;
+        setScrollLeftMs(s + (e.deltaY / z) * 1000 * 10);
+      }
     }
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, [setZoom, setScrollLeftMs]);
+
+  // ── Ruler scrub (click + drag) ─────────────────────────────────────────
+  function rulerClientXToMs(clientX: number) {
+    const rect = rulerRef.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    return Math.max(0, ((clientX - rect.left) / zoomLevel) * 1000 + scrollLeftMs);
   }
 
-  // Build ruler ticks
+  function onRulerPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    const ms = rulerClientXToMs(e.clientX);
+    setPlayheadMs(ms);
+    rulerDragRef.current = { startX: e.clientX, startMs: ms };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function onRulerPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!rulerDragRef.current) return;
+    setPlayheadMs(rulerClientXToMs(e.clientX));
+  }
+
+  function onRulerPointerUp() {
+    rulerDragRef.current = null;
+  }
+
+  // ── Ruler ticks ────────────────────────────────────────────────────────
   const totalMs = Math.max(durationMs, 30_000);
-  const tickIntervalMs = zoomLevel >= 200 ? 1000 : zoomLevel >= 50 ? 5000 : 10_000;
-  const visibleDurationMs = 10_000 / (zoomLevel / 100); // rough estimate
+  const tickIntervalMs =
+    zoomLevel >= 200 ? 1_000 : zoomLevel >= 60 ? 5_000 : 10_000;
+  const visibleMs = (rulerRef.current?.clientWidth ?? 800) / zoomLevel * 1000;
   const ticks: number[] = [];
   const startTick = Math.floor(scrollLeftMs / tickIntervalMs) * tickIntervalMs;
-  for (let t = startTick; t <= scrollLeftMs + visibleDurationMs + tickIntervalMs * 2; t += tickIntervalMs) {
-    if (t >= 0) ticks.push(t);
+  for (let t = startTick; t <= scrollLeftMs + visibleMs + tickIntervalMs; t += tickIntervalMs) {
+    if (t >= 0 && t <= totalMs + tickIntervalMs) {
+      ticks.push(t);
+      if (ticks.length >= MAX_TICKS) break;
+    }
   }
 
   const playheadX = msToX(playheadMs);
 
   return (
     <div
+      ref={containerRef}
       className="flex flex-col h-full bg-neutral-900 overflow-hidden"
-      onWheel={handleWheel}
     >
-      {/* Time ruler */}
+      {/* ── Time ruler ──────────────────────────────────────────────────── */}
       <div className="flex flex-none h-7 border-b border-neutral-700">
-        {/* Track header spacer */}
-        <div className="flex-none bg-neutral-850 border-r border-neutral-700" style={{ width: HEADER_WIDTH }} />
+        {/* Header spacer */}
+        <div
+          className="flex-none bg-neutral-850 border-r border-neutral-700"
+          style={{ width: HEADER_WIDTH }}
+        />
 
-        {/* Ruler clicks */}
+        {/* Ruler — draggable scrub surface */}
         <div
           ref={rulerRef}
-          className="flex-1 relative overflow-hidden cursor-pointer bg-neutral-850"
-          onClick={handleRulerClick}
+          className="flex-1 relative overflow-hidden cursor-col-resize bg-neutral-850 select-none"
+          onPointerDown={onRulerPointerDown}
+          onPointerMove={onRulerPointerMove}
+          onPointerUp={onRulerPointerUp}
         >
           {ticks.map((t) => (
             <div
               key={t}
-              className="absolute top-0 flex flex-col items-center"
+              className="absolute top-0 flex flex-col items-center pointer-events-none"
               style={{ left: msToX(t) }}
             >
               <div className="w-px h-2 bg-neutral-600" />
-              <span className="text-xs text-neutral-500 mt-0.5 select-none" style={{ fontSize: 10 }}>
+              <span className="text-neutral-500 mt-0.5 select-none" style={{ fontSize: 9 }}>
                 {msToTimecode(t)}
               </span>
             </div>
           ))}
 
-          {/* Playhead on ruler */}
+          {/* Playhead line on ruler */}
           <div
-            className="absolute top-0 w-px h-full bg-indigo-400 pointer-events-none"
+            className="absolute top-0 bottom-0 w-px bg-indigo-400 pointer-events-none"
             style={{ left: playheadX }}
           />
         </div>
       </div>
 
-      {/* Track area */}
+      {/* ── Track area ──────────────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
         {/* Track headers */}
         <div
-          className="flex-none flex flex-col border-r border-neutral-700 bg-neutral-850"
+          className="flex-none flex flex-col border-r border-neutral-700"
           style={{ width: HEADER_WIDTH }}
         >
           {tracks.map((track) => (
-            <div
-              key={track.id}
-              className="flex items-center gap-2 px-2 border-b border-neutral-800"
-              style={{ height: TRACK_HEIGHT }}
-            >
-              {/* Mute button */}
-              <button
-                className={`w-5 h-5 rounded text-xs flex items-center justify-center transition-colors ${
-                  track.muted ? 'bg-yellow-600 text-white' : 'text-neutral-500 hover:text-neutral-300'
-                }`}
-                title={track.muted ? 'Unmute' : 'Mute'}
-              >
-                M
-              </button>
-              {/* Track name */}
-              <span className="text-xs text-neutral-300 truncate flex-1">{track.name}</span>
-            </div>
+            <TrackHeader key={track.id} track={track} height={TRACK_HEIGHT} />
           ))}
-
           {tracks.length === 0 && (
             <div className="flex-1 flex items-center justify-center text-xs text-neutral-600 px-2 text-center">
               No tracks
@@ -128,50 +162,34 @@ export default function Timeline() {
         </div>
 
         {/* Clip lanes */}
-        <div className="flex-1 relative overflow-hidden">
+        <div
+          className="flex-1 relative overflow-hidden"
+          onClick={clearSelection}
+        >
           {tracks.map((track) => (
             <div
               key={track.id}
               className="relative border-b border-neutral-800"
               style={{ height: TRACK_HEIGHT }}
             >
-              {/* Drop zone hint */}
-              <div className="absolute inset-0 bg-neutral-900/50" />
-
-              {/* Clips */}
+              <div className="absolute inset-0 bg-neutral-900/40" />
               {track.clipIds.map((clipId) => {
                 const clip = clips[clipId];
                 if (!clip) return null;
-                const left = msToX(clip.startTimeMs);
-                const width = (clip.durationMs / 1000) * zoomLevel;
-                if (left + width < 0 || left > 2000) return null; // simple culling
-
-                const colors: Record<string, string> = {
-                  video: 'bg-indigo-700 border-indigo-500',
-                  audio: 'bg-green-800 border-green-600',
-                  image: 'bg-purple-800 border-purple-600',
-                  text: 'bg-yellow-800 border-yellow-600',
-                };
-
                 return (
-                  <div
+                  <ClipBlock
                     key={clipId}
-                    className={`absolute top-1 bottom-1 rounded border ${colors[clip.type] ?? 'bg-neutral-700 border-neutral-500'} flex items-center px-2 overflow-hidden cursor-pointer select-none`}
-                    style={{ left: Math.max(0, left), width: Math.max(4, width) }}
-                    title={clip.name}
-                  >
-                    <span className="text-xs text-white/80 truncate">{clip.name}</span>
-                  </div>
+                    clip={clip}
+                    zoomLevel={zoomLevel}
+                    scrollLeftMs={scrollLeftMs}
+                  />
                 );
               })}
             </div>
           ))}
 
           {/* Playhead line over clips */}
-          <div
-            className="absolute top-0 bottom-0 w-px bg-indigo-400 pointer-events-none z-10"
-            style={{ left: playheadX }}
-          />
+          <Playhead x={playheadX} zoomLevel={zoomLevel} />
         </div>
       </div>
     </div>

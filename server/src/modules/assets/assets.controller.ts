@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { createAsset, findAssetById, removeAsset } from './assets.service';
+import { prisma } from '../../lib/prisma';
 
 export async function uploadAsset(req: Request, res: Response, next: NextFunction): Promise<void> {
   const file = req.file;
@@ -11,6 +12,13 @@ export async function uploadAsset(req: Request, res: Response, next: NextFunctio
   const { projectId } = req.body as { projectId: string };
   if (!projectId) {
     res.status(400).json({ error: 'projectId is required' });
+    return;
+  }
+
+  // Verify the project exists before writing the asset record
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
     return;
   }
 

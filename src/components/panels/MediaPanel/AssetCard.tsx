@@ -32,7 +32,9 @@ const TYPE_ICONS = {
 };
 
 export default function AssetCard({ asset, onDelete }: AssetCardProps) {
-  const thumbnail = asset.thumbnails[0];
+  const rawThumb = asset.thumbnails[0];
+  // Only render data URIs from our own server — never arbitrary URLs
+  const thumbnail = rawThumb?.startsWith('data:image/jpeg;base64,') ? rawThumb : undefined;
 
   return (
     <div

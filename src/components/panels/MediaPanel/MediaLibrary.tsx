@@ -4,10 +4,13 @@ import { useMediaStore } from '@/stores/mediaStore';
 import AssetCard from './AssetCard';
 
 export default function MediaLibrary() {
-  const assets = useMediaStore((s) => Object.values(s.assets));
+  // Select stable object references — never call Object.values/entries inside a selector
+  // because they return new arrays on every call, causing useSyncExternalStore to loop.
+  const assetMap = useMediaStore((s) => s.assets);
   const removeAsset = useMediaStore((s) => s.removeAsset);
   const uploadProgress = useMediaStore((s) => s.uploadProgress);
 
+  const assets = Object.values(assetMap);
   const uploading = Object.entries(uploadProgress);
 
   if (assets.length === 0 && uploading.length === 0) {

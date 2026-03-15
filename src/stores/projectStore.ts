@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { nanoid } from 'nanoid';
-import type { Project, Track, Timeline } from '@shared/types/project';
+import type { Project, Track } from '@shared/types/project';
 import type { Clip, ClipId, TrackId, TrackType, Transform } from '@shared/types/clips';
-import { createDefaultProject, DEFAULT_PROJECT_SETTINGS } from '@shared/types/project';
+import { createDefaultProject } from '@shared/types/project';
 
 const MAX_UNDO_STEPS = 50;
 
-const DEFAULT_TRANSFORM: Transform = {
+export const DEFAULT_TRANSFORM: Transform = {
   x: 0.5,
   y: 0.5,
   width: 1,
@@ -22,61 +22,64 @@ interface ProjectState {
   past: Project[];
   future: Project[];
 
-  // Project actions
   setProject: (project: Project) => void;
   updateProjectName: (name: string) => void;
   updateProjectSettings: (patch: Partial<Project['settings']>) => void;
 
-  // Track actions
   addTrack: (type: TrackType, name?: string) => TrackId;
   removeTrack: (id: TrackId) => void;
   updateTrack: (id: TrackId, patch: Partial<Track>) => void;
 
-  // Clip actions
   addClip: (clip: Clip) => void;
   removeClip: (id: ClipId) => void;
   updateClip: (id: ClipId, patch: Partial<Clip>) => void;
   moveClip: (id: ClipId, newStartTimeMs: number, newTrackId?: TrackId) => void;
+  moveMultipleClips: (moves: Array<{ id: ClipId; newStartTimeMs: number }>) => void;
   trimClip: (id: ClipId, trimStartMs: number, trimEndMs: number) => void;
   splitClip: (id: ClipId, atTimeMs: number) => [ClipId, ClipId] | null;
 
-  // Asset refs
   addAssetRef: (assetId: string) => void;
   removeAssetRef: (assetId: string) => void;
 
-  // History
   undo: () => void;
   redo: () => void;
   pushHistory: () => void;
 }
 
-function recomputeTimelineDuration(project: Project): number {
+// Pure helpers — no Zustand dependency
+
+function maxDuration(clips: Record<ClipId, Clip>): number {
   let max = 0;
-  for (const clip of Object.values(project.clips)) {
-    max = Math.max(max, clip.startTimeMs + clip.durationMs);
+  for (const c of Object.values(clips)) {
+    max = Math.max(max, c.startTimeMs + c.durationMs);
   }
   return max;
 }
 
-function removeClipFromTrack(project: Project, clipId: ClipId): Project {
+/** Prepend current project to past[], clear future[], cap at MAX_UNDO_STEPS. */
+function withHistory(
+  s: { project: Project; past: Project[]; future: Project[] },
+): { past: Project[]; future: Project[] } {
+  return {
+    past: [...s.past, s.project].slice(-MAX_UNDO_STEPS),
+    future: [],
+  };
+}
+
+function removeClipFromProject(project: Project, clipId: ClipId): Project {
   const clip = project.clips[clipId];
   if (!clip) return project;
 
   const tracks = project.timeline.tracks.map((t) =>
     t.id === clip.trackId ? { ...t, clipIds: t.clipIds.filter((id) => id !== clipId) } : t,
   );
-
   const clips = { ...project.clips };
   delete clips[clipId];
 
-  return {
-    ...project,
-    timeline: { ...project.timeline, tracks },
-    clips,
-  };
+  return { ...project, timeline: { ...project.timeline, tracks }, clips };
 }
 
-export const useProjectStore = create<ProjectState>((set, get) => ({
+export const useProjectStore = create<ProjectState>((set) => ({
   project: createDefaultProject(nanoid()),
   past: [],
   future: [],
@@ -88,62 +91,48 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   updateProjectSettings: (patch) =>
     set((s) => ({
-      project: {
-        ...s.project,
-        settings: { ...s.project.settings, ...patch },
-        updatedAt: Date.now(),
-      },
+      project: { ...s.project, settings: { ...s.project.settings, ...patch }, updatedAt: Date.now() },
     })),
+
+  // ── Tracks ──────────────────────────────────────────────────────────────
 
   addTrack: (type, name) => {
     const id = nanoid();
     const displayName = name ?? (type === 'video' ? 'Video' : type === 'audio' ? 'Audio' : 'Overlay');
-
     set((s) => {
-      get().pushHistory();
-      const order = s.project.timeline.tracks.length;
       const newTrack: Track = {
         id,
         type,
         name: displayName,
-        order,
+        order: s.project.timeline.tracks.length,
         locked: false,
         muted: false,
         collapsed: false,
         clipIds: [],
       };
       return {
+        ...withHistory(s),
         project: {
           ...s.project,
-          timeline: {
-            ...s.project.timeline,
-            tracks: [...s.project.timeline.tracks, newTrack],
-          },
+          timeline: { ...s.project.timeline, tracks: [...s.project.timeline.tracks, newTrack] },
           updatedAt: Date.now(),
         },
       };
     });
-
     return id;
   },
 
   removeTrack: (id) =>
     set((s) => {
-      get().pushHistory();
       const track = s.project.timeline.tracks.find((t) => t.id === id);
       if (!track) return s;
-
-      // Remove all clips on this track
       const clips = { ...s.project.clips };
       track.clipIds.forEach((cid) => delete clips[cid]);
-
       return {
+        ...withHistory(s),
         project: {
           ...s.project,
-          timeline: {
-            ...s.project.timeline,
-            tracks: s.project.timeline.tracks.filter((t) => t.id !== id),
-          },
+          timeline: { ...s.project.timeline, tracks: s.project.timeline.tracks.filter((t) => t.id !== id) },
           clips,
           updatedAt: Date.now(),
         },
@@ -156,17 +145,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         ...s.project,
         timeline: {
           ...s.project.timeline,
-          tracks: s.project.timeline.tracks.map((t) =>
-            t.id === id ? { ...t, ...patch } : t,
-          ),
+          tracks: s.project.timeline.tracks.map((t) => (t.id === id ? { ...t, ...patch } : t)),
         },
         updatedAt: Date.now(),
       },
     })),
 
+  // ── Clips ────────────────────────────────────────────────────────────────
+
   addClip: (clip) =>
     set((s) => {
-      get().pushHistory();
       const clips = { ...s.project.clips, [clip.id]: clip };
       const tracks = s.project.timeline.tracks.map((t) =>
         t.id === clip.trackId
@@ -178,12 +166,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             }
           : t,
       );
-      const durationMs = recomputeTimelineDuration({ ...s.project, clips });
-
       return {
+        ...withHistory(s),
         project: {
           ...s.project,
-          timeline: { ...s.project.timeline, tracks, durationMs },
+          timeline: { ...s.project.timeline, tracks, durationMs: maxDuration(clips) },
           clips,
           updatedAt: Date.now(),
         },
@@ -192,13 +179,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   removeClip: (id) =>
     set((s) => {
-      get().pushHistory();
-      const updated = removeClipFromTrack(s.project, id);
-      const durationMs = recomputeTimelineDuration(updated);
+      const updated = removeClipFromProject(s.project, id);
       return {
+        ...withHistory(s),
         project: {
           ...updated,
-          timeline: { ...updated.timeline, durationMs },
+          timeline: { ...updated.timeline, durationMs: maxDuration(updated.clips) },
           updatedAt: Date.now(),
         },
       };
@@ -219,37 +205,59 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   moveClip: (id, newStartTimeMs, newTrackId) =>
     set((s) => {
-      get().pushHistory();
       const existing = s.project.clips[id];
       if (!existing) return s;
 
       const targetTrackId = newTrackId ?? existing.trackId;
-      const updatedClip: Clip = { ...existing, startTimeMs: newStartTimeMs, trackId: targetTrackId } as Clip;
+      const updatedClip = { ...existing, startTimeMs: newStartTimeMs, trackId: targetTrackId } as Clip;
+      const clips = { ...s.project.clips, [id]: updatedClip };
 
       let tracks = s.project.timeline.tracks;
       if (newTrackId && newTrackId !== existing.trackId) {
-        // Move from old track to new track
         tracks = tracks.map((t) => {
           if (t.id === existing.trackId) return { ...t, clipIds: t.clipIds.filter((c) => c !== id) };
           if (t.id === newTrackId) return { ...t, clipIds: [...t.clipIds, id] };
           return t;
         });
       }
-
-      // Re-sort clipIds on affected track
-      const clips = { ...s.project.clips, [id]: updatedClip };
       tracks = tracks.map((t) =>
         t.id === targetTrackId
           ? { ...t, clipIds: [...t.clipIds].sort((a, b) => (clips[a]?.startTimeMs ?? 0) - (clips[b]?.startTimeMs ?? 0)) }
           : t,
       );
 
-      const durationMs = recomputeTimelineDuration({ ...s.project, clips });
-
       return {
+        ...withHistory(s),
         project: {
           ...s.project,
-          timeline: { ...s.project.timeline, tracks, durationMs },
+          timeline: { ...s.project.timeline, tracks, durationMs: maxDuration(clips) },
+          clips,
+          updatedAt: Date.now(),
+        },
+      };
+    }),
+
+  moveMultipleClips: (moves) =>
+    set((s) => {
+      const clips = { ...s.project.clips };
+      for (const { id, newStartTimeMs } of moves) {
+        const existing = clips[id];
+        if (!existing) continue;
+        clips[id] = { ...existing, startTimeMs: Math.max(0, newStartTimeMs) } as Clip;
+      }
+      const affectedTrackIds = new Set(
+        moves.map((m) => clips[m.id]?.trackId).filter(Boolean) as string[],
+      );
+      const tracks = s.project.timeline.tracks.map((t) =>
+        affectedTrackIds.has(t.id)
+          ? { ...t, clipIds: [...t.clipIds].sort((a, b) => (clips[a]?.startTimeMs ?? 0) - (clips[b]?.startTimeMs ?? 0)) }
+          : t,
+      );
+      return {
+        ...withHistory(s),
+        project: {
+          ...s.project,
+          timeline: { ...s.project.timeline, tracks, durationMs: maxDuration(clips) },
           clips,
           updatedAt: Date.now(),
         },
@@ -258,25 +266,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   trimClip: (id, trimStartMs, trimEndMs) =>
     set((s) => {
-      get().pushHistory();
       const existing = s.project.clips[id];
       if (!existing) return s;
-
-      const newDuration = trimEndMs - trimStartMs;
-      const updatedClip = {
-        ...existing,
-        trimStartMs,
-        trimEndMs,
-        durationMs: newDuration,
-      } as Clip;
-
-      const clips = { ...s.project.clips, [id]: updatedClip };
-      const durationMs = recomputeTimelineDuration({ ...s.project, clips });
-
+      const clips = {
+        ...s.project.clips,
+        [id]: { ...existing, trimStartMs, trimEndMs, durationMs: trimEndMs - trimStartMs } as Clip,
+      };
       return {
+        ...withHistory(s),
         project: {
           ...s.project,
-          timeline: { ...s.project.timeline, durationMs },
+          timeline: { ...s.project.timeline, durationMs: maxDuration(clips) },
           clips,
           updatedAt: Date.now(),
         },
@@ -284,37 +284,26 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }),
 
   splitClip: (id, atTimeMs) => {
-    const { project } = get();
-    const clip = project.clips[id];
-    if (!clip) return null;
-    if (atTimeMs <= clip.startTimeMs || atTimeMs >= clip.startTimeMs + clip.durationMs) return null;
-
-    get().pushHistory();
-
-    const leftDuration = atTimeMs - clip.startTimeMs;
-    const rightDuration = clip.durationMs - leftDuration;
-    const leftId = nanoid();
+    // IDs must be generated before set() so we can return them
+    const leftId  = nanoid();
     const rightId = nanoid();
-
-    const leftClip: Clip = {
-      ...clip,
-      id: leftId,
-      durationMs: leftDuration,
-      trimEndMs: clip.trimStartMs + leftDuration,
-    } as Clip;
-
-    const rightClip: Clip = {
-      ...clip,
-      id: rightId,
-      startTimeMs: atTimeMs,
-      durationMs: rightDuration,
-      trimStartMs: clip.trimStartMs + leftDuration,
-    } as Clip;
+    let result: [ClipId, ClipId] | null = null;
 
     set((s) => {
+      // All reads happen inside set() against the guaranteed-fresh state
+      const clip = s.project.clips[id];
+      if (!clip) return s;
+      if (atTimeMs <= clip.startTimeMs || atTimeMs >= clip.startTimeMs + clip.durationMs) return s;
+
+      const leftDuration  = atTimeMs - clip.startTimeMs;
+      const rightDuration = clip.durationMs - leftDuration;
+
+      const leftClip  = { ...clip, id: leftId,  durationMs: leftDuration,  trimEndMs:   clip.trimStartMs + leftDuration } as Clip;
+      const rightClip = { ...clip, id: rightId, startTimeMs: atTimeMs, durationMs: rightDuration, trimStartMs: clip.trimStartMs + leftDuration } as Clip;
+
       const clips = { ...s.project.clips };
       delete clips[id];
-      clips[leftId] = leftClip;
+      clips[leftId]  = leftClip;
       clips[rightId] = rightClip;
 
       const tracks = s.project.timeline.tracks.map((t) =>
@@ -328,42 +317,32 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           : t,
       );
 
+      result = [leftId, rightId];
       return {
-        project: {
-          ...s.project,
-          timeline: { ...s.project.timeline, tracks },
-          clips,
-          updatedAt: Date.now(),
-        },
+        ...withHistory(s),
+        project: { ...s.project, timeline: { ...s.project.timeline, tracks }, clips, updatedAt: Date.now() },
       };
     });
 
-    return [leftId, rightId];
+    return result;
   },
+
+  // ── Asset refs ───────────────────────────────────────────────────────────
 
   addAssetRef: (assetId) =>
     set((s) => ({
       project: {
         ...s.project,
-        assetIds: s.project.assetIds.includes(assetId)
-          ? s.project.assetIds
-          : [...s.project.assetIds, assetId],
+        assetIds: s.project.assetIds.includes(assetId) ? s.project.assetIds : [...s.project.assetIds, assetId],
       },
     })),
 
   removeAssetRef: (assetId) =>
     set((s) => ({
-      project: {
-        ...s.project,
-        assetIds: s.project.assetIds.filter((id) => id !== assetId),
-      },
+      project: { ...s.project, assetIds: s.project.assetIds.filter((id) => id !== assetId) },
     })),
 
-  pushHistory: () =>
-    set((s) => {
-      const past = [...s.past, s.project].slice(-MAX_UNDO_STEPS);
-      return { past, future: [] };
-    }),
+  // ── History ──────────────────────────────────────────────────────────────
 
   undo: () =>
     set((s) => {
@@ -379,4 +358,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const [next, ...future] = s.future;
       return { project: next, past: [...s.past, s.project], future };
     }),
+
+  pushHistory: () => set((s) => ({ ...withHistory(s) })),
 }));
