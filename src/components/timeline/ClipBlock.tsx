@@ -30,7 +30,6 @@ function setTransformOnClips(ids: string[], translateX: string) {
 }
 
 export default function ClipBlock({ clip, zoomLevel, scrollLeftMs }: ClipBlockProps) {
-  const project           = useProjectStore((s) => s.project);
   const moveMultipleClips = useProjectStore((s) => s.moveMultipleClips);
   const selectClip        = useEditorStore((s) => s.selectClip);
   const isSelected        = useEditorStore((s) => s.selection.clipIds.includes(clip.id));
@@ -58,6 +57,7 @@ export default function ClipBlock({ clip, zoomLevel, scrollLeftMs }: ClipBlockPr
     if ((e.target as HTMLElement).dataset.handle) return;
 
     // Respect locked tracks
+    const project = useProjectStore.getState().project;
     const track = project.timeline.tracks.find((t) => t.id === clip.trackId);
     if (track?.locked) return;
 
@@ -87,7 +87,7 @@ export default function ClipBlock({ clip, zoomLevel, scrollLeftMs }: ClipBlockPr
 
     const deltaMs  = ((e.clientX - startX) / z) * 1000;
     const rawMs    = Math.max(0, (origStartMsMap[clip.id] ?? 0) + deltaMs);
-    const snapped  = snapToNearest(rawMs, getSnapPoints(project, clip.id), (15 / z) * 1000);
+    const snapped  = snapToNearest(rawMs, getSnapPoints(useProjectStore.getState().project, clip.id), (15 / z) * 1000);
     const offsetPx = ((snapped - (origStartMsMap[clip.id] ?? 0)) / 1000) * z;
 
     setTransformOnClips(dragIds, `translateX(${offsetPx}px)`);

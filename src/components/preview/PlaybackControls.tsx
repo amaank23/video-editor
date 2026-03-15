@@ -5,7 +5,9 @@ import { useProjectStore } from '@/stores/projectStore';
 import { msToTimecode } from '@/lib/utils/time';
 
 export default function PlaybackControls() {
-  const { isPlaying, playheadMs, loopEnabled } = useEditorStore((s) => s.playback);
+  const isPlaying   = useEditorStore((s) => s.playback.isPlaying);
+  const playheadMs  = useEditorStore((s) => s.playback.playheadMs);
+  const loopEnabled = useEditorStore((s) => s.playback.loopEnabled);
   const setPlaying    = useEditorStore((s) => s.setPlaying);
   const setPlayheadMs = useEditorStore((s) => s.setPlayheadMs);
   const toggleLoop    = useEditorStore((s) => s.toggleLoop);

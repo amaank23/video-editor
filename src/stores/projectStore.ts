@@ -21,6 +21,8 @@ interface ProjectState {
   project: Project;
   past: Project[];
   future: Project[];
+  /** True once the server has confirmed the project ID via createProject(). */
+  serverRegistered: boolean;
 
   setProject: (project: Project) => void;
   setProjectId: (id: string) => void;
@@ -42,9 +44,12 @@ interface ProjectState {
   addAssetRef: (assetId: string) => void;
   removeAssetRef: (assetId: string) => void;
 
+  setServerRegistered: () => void;
   undo: () => void;
   redo: () => void;
   pushHistory: () => void;
+  /** Update a clip AND record an undo entry atomically. Use for discrete committed changes. */
+  updateClipAndCommit: (id: ClipId, patch: Partial<Clip>) => void;
 }
 
 // Pure helpers — no Zustand dependency
@@ -84,10 +89,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
   project: createDefaultProject(nanoid()),
   past: [],
   future: [],
+  serverRegistered: false,
 
   setProject: (project) => set({ project, past: [], future: [] }),
 
   setProjectId: (id) => set((s) => ({ project: { ...s.project, id } })),
+
+  setServerRegistered: () => set({ serverRegistered: true }),
 
   updateProjectName: (name) =>
     set((s) => ({ project: { ...s.project, name, updatedAt: Date.now() } })),
@@ -363,4 +371,18 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }),
 
   pushHistory: () => set((s) => ({ ...withHistory(s) })),
+
+  updateClipAndCommit: (id, patch) =>
+    set((s) => {
+      const existing = s.project.clips[id];
+      if (!existing) return s;
+      return {
+        ...withHistory(s),
+        project: {
+          ...s.project,
+          clips: { ...s.project.clips, [id]: { ...existing, ...patch } as Clip },
+          updatedAt: Date.now(),
+        },
+      };
+    }),
 }));

@@ -30,8 +30,9 @@ function SliderRow({
 }
 
 export default function AudioProperties({ clip }: Props) {
-  const updateClip  = useProjectStore((s) => s.updateClip);
-  const pushHistory = useProjectStore((s) => s.pushHistory);
+  const updateClip        = useProjectStore((s) => s.updateClip);
+  const updateClipAndCommit = useProjectStore((s) => s.updateClipAndCommit);
+  const pushHistory       = useProjectStore((s) => s.pushHistory);
 
   return (
     <div className="p-3 space-y-4">
@@ -54,7 +55,8 @@ export default function AudioProperties({ clip }: Props) {
         <div className="flex flex-wrap gap-1">
           {RATES.map((r) => (
             <button key={r}
-              onClick={() => { updateClip(clip.id, { playbackRate: r }); pushHistory(); }}
+              aria-pressed={clip.playbackRate === r}
+              onClick={() => updateClipAndCommit(clip.id, { playbackRate: r })}
               className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                 clip.playbackRate === r
                   ? 'bg-indigo-600 border-indigo-500 text-white'

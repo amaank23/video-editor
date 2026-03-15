@@ -131,24 +131,27 @@ export default function Timeline() {
     const dropMs = Math.max(0, (dropX / zoomLevel) * 1000 + scrollLeftMs);
 
     // Calculate which track row was targeted from Y position
-    const dropY     = e.clientY - lanesRect.top;
-    const trackIndex = Math.floor(dropY / TRACK_HEIGHT);
+    const dropY    = e.clientY - lanesRect.top;
+    const rowIndex = Math.floor(dropY / TRACK_HEIGHT);
+    const targetRow = tracks[rowIndex]; // actual track at the dropped row
 
     // Determine asset→track type mapping
     const neededType: TrackType = asset.type === 'audio' ? 'audio'
       : asset.type === 'image' ? 'overlay'
       : 'video';
 
-    // Find first compatible track in the drop row, else create one
-    const compatibleTracks = tracks.filter((t) => t.type === neededType);
+    // If dropped directly on a compatible track, use it.
+    // Otherwise find the last compatible track or create one.
     let targetTrackId: string;
-
-    if (trackIndex < compatibleTracks.length) {
-      targetTrackId = compatibleTracks[trackIndex].id;
-    } else if (compatibleTracks.length > 0) {
-      targetTrackId = compatibleTracks[compatibleTracks.length - 1].id;
+    if (targetRow && targetRow.type === neededType) {
+      targetTrackId = targetRow.id;
     } else {
-      targetTrackId = addTrack(neededType, asset.type === 'audio' ? 'Audio' : asset.type === 'image' ? 'Overlay' : 'Video');
+      const compatible = tracks.filter((t) => t.type === neededType);
+      if (compatible.length > 0) {
+        targetTrackId = compatible[compatible.length - 1].id;
+      } else {
+        targetTrackId = addTrack(neededType, asset.type === 'audio' ? 'Audio' : asset.type === 'image' ? 'Overlay' : 'Video');
+      }
     }
 
     const clipDurationMs = asset.durationMs ?? 5_000;

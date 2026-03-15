@@ -7,7 +7,10 @@ interface UploadZoneProps {
 }
 
 export default function UploadZone({ onFiles }: UploadZoneProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef    = useRef<HTMLInputElement>(null);
+  // Counter instead of boolean — avoids "stuck highlight" when dragging over
+  // child elements causes interleaved dragenter/dragleave pairs.
+  const dragCounter = useRef(0);
   const [dragging, setDragging] = useState(false);
 
   function handleFiles(files: FileList | null) {
@@ -17,10 +20,12 @@ export default function UploadZone({ onFiles }: UploadZoneProps) {
 
   return (
     <div
-      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-      onDragLeave={() => setDragging(false)}
+      onDragEnter={(e) => { e.preventDefault(); dragCounter.current++; setDragging(true); }}
+      onDragOver={(e) => { e.preventDefault(); }}
+      onDragLeave={() => { dragCounter.current--; if (dragCounter.current === 0) setDragging(false); }}
       onDrop={(e) => {
         e.preventDefault();
+        dragCounter.current = 0;
         setDragging(false);
         handleFiles(e.dataTransfer.files);
       }}

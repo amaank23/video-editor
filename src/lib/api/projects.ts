@@ -21,11 +21,13 @@ export async function createProject(name: string): Promise<ServerProject> {
 export async function saveProject(
   id: string,
   patch: { name?: string; settings?: unknown },
+  signal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch(`${API}/api/projects/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
+    signal,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

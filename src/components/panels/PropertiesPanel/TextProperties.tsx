@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef } from 'react';
 import type { TextClip } from '@shared/types/clips';
 import { useProjectStore } from '@/stores/projectStore';
 import TransformControls from './TransformControls';
@@ -10,8 +11,10 @@ const FONTS = ['Inter', 'Arial', 'Georgia', 'Courier New', 'Times New Roman', 'V
 const ALIGNS: Array<TextClip['textAlign']> = ['left', 'center', 'right'];
 
 export default function TextProperties({ clip }: Props) {
-  const updateClip  = useProjectStore((s) => s.updateClip);
-  const pushHistory = useProjectStore((s) => s.pushHistory);
+  const updateClip        = useProjectStore((s) => s.updateClip);
+  const updateClipAndCommit = useProjectStore((s) => s.updateClipAndCommit);
+  const pushHistory       = useProjectStore((s) => s.pushHistory);
+  const focusValueRef     = useRef<string | null>(null);
 
   function update(patch: Partial<TextClip>) {
     updateClip(clip.id, patch as Partial<typeof clip>);
@@ -30,8 +33,12 @@ export default function TextProperties({ clip }: Props) {
         <textarea
           value={clip.content}
           rows={3}
+          onFocus={(e) => { focusValueRef.current = e.target.value; }}
           onChange={(e) => update({ content: e.target.value })}
-          onBlur={pushHistory}
+          onBlur={(e) => {
+            if (e.target.value !== focusValueRef.current) pushHistory();
+            focusValueRef.current = null;
+          }}
           className="w-full bg-neutral-800 text-xs text-neutral-200 px-2 py-1.5 rounded border border-neutral-700 focus:outline-none focus:border-indigo-500 resize-none"
         />
       </div>
@@ -41,7 +48,7 @@ export default function TextProperties({ clip }: Props) {
         <label className="text-xs text-neutral-500 uppercase tracking-wider block mb-1.5">Font</label>
         <select
           value={clip.fontFamily}
-          onChange={(e) => { update({ fontFamily: e.target.value }); pushHistory(); }}
+          onChange={(e) => updateClipAndCommit(clip.id, { fontFamily: e.target.value })}
           className="w-full bg-neutral-800 text-xs text-neutral-200 px-2 py-1.5 rounded border border-neutral-700 focus:outline-none focus:border-indigo-500"
         >
           {FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
@@ -55,8 +62,12 @@ export default function TextProperties({ clip }: Props) {
           <input
             type="number" min={8} max={300} step={1}
             value={clip.fontSize}
+            onFocus={(e) => { focusValueRef.current = e.target.value; }}
             onChange={(e) => update({ fontSize: parseInt(e.target.value) || 24 })}
-            onBlur={pushHistory}
+            onBlur={(e) => {
+              if (e.target.value !== focusValueRef.current) pushHistory();
+              focusValueRef.current = null;
+            }}
             className="w-full bg-neutral-800 text-xs text-neutral-200 px-2 py-1 rounded border border-neutral-700 focus:outline-none focus:border-indigo-500"
           />
         </div>
@@ -64,7 +75,7 @@ export default function TextProperties({ clip }: Props) {
           <label className="text-xs text-neutral-500 uppercase tracking-wider block mb-1.5">Weight</label>
           <select
             value={clip.fontWeight}
-            onChange={(e) => { update({ fontWeight: parseInt(e.target.value) }); pushHistory(); }}
+            onChange={(e) => updateClipAndCommit(clip.id, { fontWeight: parseInt(e.target.value) })}
             className="w-full bg-neutral-800 text-xs text-neutral-200 px-2 py-1.5 rounded border border-neutral-700 focus:outline-none focus:border-indigo-500"
           >
             {[300, 400, 500, 600, 700, 800].map((w) => <option key={w} value={w}>{w}</option>)}
@@ -72,13 +83,13 @@ export default function TextProperties({ clip }: Props) {
         </div>
       </div>
 
-      {/* Style */}
+      {/* Style + Align */}
       <div className="flex gap-2">
         <div className="flex-1">
           <label className="text-xs text-neutral-500 uppercase tracking-wider block mb-1.5">Style</label>
           <select
             value={clip.fontStyle}
-            onChange={(e) => { update({ fontStyle: e.target.value as TextClip['fontStyle'] }); pushHistory(); }}
+            onChange={(e) => updateClipAndCommit(clip.id, { fontStyle: e.target.value as TextClip['fontStyle'] })}
             className="w-full bg-neutral-800 text-xs text-neutral-200 px-2 py-1.5 rounded border border-neutral-700 focus:outline-none focus:border-indigo-500"
           >
             <option value="normal">Normal</option>
@@ -87,10 +98,11 @@ export default function TextProperties({ clip }: Props) {
         </div>
         <div className="flex-1">
           <label className="text-xs text-neutral-500 uppercase tracking-wider block mb-1.5">Align</label>
-          <div className="flex gap-1">
+          <div className="flex gap-1" role="group" aria-label="Text alignment">
             {ALIGNS.map((a) => (
               <button key={a}
-                onClick={() => { update({ textAlign: a }); pushHistory(); }}
+                aria-pressed={clip.textAlign === a}
+                onClick={() => updateClipAndCommit(clip.id, { textAlign: a })}
                 className={`flex-1 py-1 text-xs rounded border transition-colors ${
                   clip.textAlign === a
                     ? 'bg-indigo-600 border-indigo-500 text-white'
@@ -116,11 +128,23 @@ export default function TextProperties({ clip }: Props) {
         </div>
         <div className="flex-1">
           <label className="text-xs text-neutral-500 uppercase tracking-wider block mb-1.5">Background</label>
-          <input type="color" value={clip.backgroundColor || '#00000000'}
-            onChange={(e) => update({ backgroundColor: e.target.value })}
-            onBlur={pushHistory}
-            className="w-full h-7 rounded border border-neutral-700 bg-neutral-800 cursor-pointer"
-          />
+          {/* Toggle background on/off; color picker hidden when background is empty.
+              input[type=color] only supports 6-digit hex so we never feed it an 8-digit value. */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={!!clip.backgroundColor}
+              onChange={(e) => updateClipAndCommit(clip.id, { backgroundColor: e.target.checked ? '#000000' : '' })}
+              className="accent-indigo-500"
+            />
+            {clip.backgroundColor && (
+              <input type="color" value={clip.backgroundColor.slice(0, 7)}
+                onChange={(e) => update({ backgroundColor: e.target.value })}
+                onBlur={pushHistory}
+                className="flex-1 h-7 rounded border border-neutral-700 bg-neutral-800 cursor-pointer"
+              />
+            )}
+          </div>
         </div>
       </div>
 

@@ -9,8 +9,9 @@ interface Props { clip: VideoClip }
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4];
 
 export default function VideoProperties({ clip }: Props) {
-  const updateClip  = useProjectStore((s) => s.updateClip);
-  const pushHistory = useProjectStore((s) => s.pushHistory);
+  const updateClip        = useProjectStore((s) => s.updateClip);
+  const updateClipAndCommit = useProjectStore((s) => s.updateClipAndCommit);
+  const pushHistory       = useProjectStore((s) => s.pushHistory);
 
   return (
     <div className="p-3 space-y-4">
@@ -44,7 +45,8 @@ export default function VideoProperties({ clip }: Props) {
           {RATES.map((r) => (
             <button
               key={r}
-              onClick={() => { updateClip(clip.id, { playbackRate: r }); pushHistory(); }}
+              aria-pressed={clip.playbackRate === r}
+              onClick={() => updateClipAndCommit(clip.id, { playbackRate: r })}
               className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                 clip.playbackRate === r
                   ? 'bg-indigo-600 border-indigo-500 text-white'

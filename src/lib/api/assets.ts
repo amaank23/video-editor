@@ -46,7 +46,9 @@ export function uploadAsset(
       }
     };
 
-    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.onerror   = () => reject(new Error('Network error during upload'));
+    xhr.ontimeout = () => reject(new Error('Upload timed out'));
+    xhr.timeout   = 300_000; // 5 minutes
     xhr.open('POST', `${API}/api/assets/upload`);
     xhr.send(fd);
   });
