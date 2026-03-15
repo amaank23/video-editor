@@ -1,5 +1,5 @@
 import type { Project } from '@shared/types/project';
-import type { Clip, VideoClip, AudioClip, ImageClip, TextClip } from '@shared/types/clips';
+import type { Clip, VideoClip, ImageClip, TextClip } from '@shared/types/clips';
 import type { MediaAsset } from '@shared/types/media';
 import { getActiveClips } from '../timeline/TimelineEngine';
 
@@ -9,8 +9,10 @@ import { getActiveClips } from '../timeline/TimelineEngine';
  * No React dependency — can be used inside rAF callbacks.
  */
 export class CanvasRenderer {
-  private videos = new Map<string, HTMLVideoElement>();
-  private images = new Map<string, HTMLImageElement>();
+  private videos  = new Map<string, HTMLVideoElement>();
+  private images  = new Map<string, HTMLImageElement>();
+  // Thumbnail images keyed by assetId → array matching asset.thumbnails order
+  private thumbs  = new Map<string, HTMLImageElement[]>();
 
   // ── Asset element management ─────────────────────────────────────────────
 
@@ -71,8 +73,26 @@ export class CanvasRenderer {
     }
   }
 
-  /** Seek all video elements to the correct position for a still frame at timeMs. */
-  seekVideos(project: Project, assets: Record<string, MediaAsset>, timeMs: number) {
+  /**
+   * Seek all active video elements to the still-frame position at timeMs.
+   *
+   * Uses the `onseeked` *property* (not addEventListener) so that rapid
+   * scrubbing overwrites the previous handler rather than accumulating
+   * listeners.  `onReady` fires once every active video has fired `seeked`,
+   * at which point readyState >= 2 and drawImage will produce a real frame.
+   */
+  seekVideos(
+    project: Project,
+    assets: Record<string, MediaAsset>,
+    timeMs: number,
+    onReady?: () => void,
+  ): void {
+    let pending = 0;
+
+    const checkDone = () => {
+      if (--pending === 0) onReady?.();
+    };
+
     for (const clip of Object.values(project.clips)) {
       if (clip.type !== 'video') continue;
       const vc = clip as VideoClip;
@@ -84,10 +104,24 @@ export class CanvasRenderer {
 
       const video = this.getOrCreateVideo(vc.assetId, asset.serveUrl);
       const targetSec = (clip.trimStartMs + (timeMs - clip.startTimeMs)) / 1000;
+
+      pending++;
+
+      // Assign to the property (not addEventListener) — overwrites any stale
+      // handler from a previous seek, preventing listener accumulation.
+      video.onseeked = checkDone;
+
       if (video.readyState >= 1) {
         video.currentTime = targetSec;
+      } else {
+        video.addEventListener('loadedmetadata', () => {
+          video.currentTime = targetSec;
+        }, { once: true });
       }
     }
+
+    // No active video clips — signal ready immediately
+    if (pending === 0) onReady?.();
   }
 
   // ── Frame rendering ──────────────────────────────────────────────────────
@@ -151,6 +185,12 @@ export class CanvasRenderer {
         const video = this.getOrCreateVideo(vc.assetId, asset.serveUrl);
         if (video.readyState >= 2 /* HAVE_CURRENT_DATA */) {
           ctx.drawImage(video, cx - w / 2, cy - h / 2, w, h);
+        } else if (video.paused) {
+          // Paused + not ready → scrubbing seek in progress.
+          // Show the nearest pre-generated thumbnail so the canvas never goes
+          // black.  During playback we skip instead (canvas keeps last frame).
+          const thumb = this.getNearestThumb(vc, asset, timeMs);
+          if (thumb) ctx.drawImage(thumb, cx - w / 2, cy - h / 2, w, h);
         }
         break;
       }
@@ -207,6 +247,44 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
+  /**
+   * Return the thumbnail image closest to `timeMs` for a video clip.
+   * Thumbnails are evenly distributed across the full asset duration.
+   * Images are cached so we only construct each HTMLImageElement once.
+   */
+  private getNearestThumb(
+    vc: VideoClip,
+    asset: MediaAsset,
+    timeMs: number,
+  ): HTMLImageElement | null {
+    const { thumbnails } = asset;
+    if (!thumbnails || thumbnails.length === 0) return null;
+
+    // Lazy-init the image cache for this asset
+    if (!this.thumbs.has(vc.assetId)) {
+      this.thumbs.set(
+        vc.assetId,
+        thumbnails.map((src) => {
+          const img = new Image();
+          img.src = src; // base64 data URI — available synchronously
+          return img;
+        }),
+      );
+    }
+    const imgs = this.thumbs.get(vc.assetId)!;
+
+    // Map playhead time → position within the clip's trimmed window
+    const clipMs   = vc.trimStartMs + (timeMs - vc.startTimeMs);
+    const duration = asset.durationMs ?? 1;
+    const idx      = Math.max(
+      0,
+      Math.min(imgs.length - 1, Math.round((clipMs / duration) * (imgs.length - 1))),
+    );
+
+    const img = imgs[idx];
+    return img.complete && img.naturalWidth > 0 ? img : null;
+  }
+
   destroy() {
     for (const video of this.videos.values()) {
       video.pause();
@@ -214,5 +292,6 @@ export class CanvasRenderer {
     }
     this.videos.clear();
     this.images.clear();
+    this.thumbs.clear();
   }
 }

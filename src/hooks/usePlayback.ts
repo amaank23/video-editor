@@ -92,17 +92,13 @@ export function usePlayback(canvasRef: React.RefObject<HTMLCanvasElement | null>
       renderer?.pauseVideos();
       audio?.pause();
 
-      // Re-render a still frame at the paused position
+      // Seek to the paused position; re-render once seeks complete
       const canvas = canvasRef.current;
-      if (canvas) {
-        const ctx     = canvas.getContext('2d');
+      if (canvas && renderer) {
         const project = useProjectStore.getState().project;
         const assets  = useMediaStore.getState().assets;
         const timeMs  = useEditorStore.getState().playback.playheadMs;
-        if (ctx) {
-          renderer?.seekVideos(project, assets, timeMs);
-          renderer?.render(ctx, project, timeMs, assets);
-        }
+        seekAndRender(renderer, canvasRef, engineRef, project, assets, timeMs);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,13 +142,46 @@ export function usePlayback(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
     const canvas = canvasRef.current;
     if (!canvas || !renderer) return;
-    const ctx     = canvas.getContext('2d');
+
     const project = useProjectStore.getState().project;
     const assets  = useMediaStore.getState().assets;
-    if (ctx) {
-      renderer.seekVideos(project, assets, playheadMs);
-      renderer.render(ctx, project, playheadMs, assets);
-    }
+
+    // Render immediately: thumbnails fill the video area when readyState < 2,
+    // so the canvas never goes black.  seekAndRender then re-renders once every
+    // active video fires `seeked` (readyState >= 2) to swap in the real frame.
+    const ctx = canvas.getContext('2d');
+    if (ctx) renderer.render(ctx, project, playheadMs, assets);
+
+    seekAndRender(renderer, canvasRef, engineRef, project, assets, playheadMs);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playheadMs]);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Tell the renderer to seek all active video elements to `timeMs`, then
+ * re-render the canvas once all `seeked` events have fired.
+ *
+ * Because seekVideos() uses the `onseeked` *property* (not addEventListener),
+ * calling this again for a new scrub position overwrites the previous handler,
+ * so only the last seek in a rapid scrub sequence triggers a render.
+ */
+function seekAndRender(
+  renderer: CanvasRenderer,
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  engineRef: React.RefObject<PlaybackEngine | null>,
+  project: import('@shared/types/project').Project,
+  assets: Record<string, import('@shared/types/media').MediaAsset>,
+  timeMs: number,
+) {
+  renderer.seekVideos(project, assets, timeMs, () => {
+    const c = canvasRef.current;
+    if (!c || engineRef.current?.isRunning) return;
+    const c2d  = c.getContext('2d');
+    const proj = useProjectStore.getState().project;
+    const ast  = useMediaStore.getState().assets;
+    const tMs  = useEditorStore.getState().playback.playheadMs;
+    if (c2d) renderer.render(c2d, proj, tMs, ast);
+  });
 }
