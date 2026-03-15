@@ -25,6 +25,7 @@ interface ProjectState {
   serverRegistered: boolean;
 
   setProject: (project: Project) => void;
+  restoreProject: (project: Project) => void;
   setProjectId: (id: string) => void;
   updateProjectName: (name: string) => void;
   updateProjectSettings: (patch: Partial<Project['settings']>) => void;
@@ -92,6 +93,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
   serverRegistered: false,
 
   setProject: (project) => set({ project, past: [], future: [] }),
+
+  restoreProject: (project) => set({ project, past: [], future: [], serverRegistered: true }),
 
   setProjectId: (id) => set((s) => ({ project: { ...s.project, id } })),
 

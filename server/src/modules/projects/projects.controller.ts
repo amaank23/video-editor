@@ -6,7 +6,7 @@ import {
   updateProject,
   deleteProject,
 } from './projects.service';
-import type { JsonValue } from './projects.types';
+import type { JsonValue, TrackInput, ClipInput } from './projects.types';
 
 export async function getProjects(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -40,9 +40,14 @@ export async function getProject(req: Request, res: Response, next: NextFunction
 }
 
 export async function putProject(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const { name, settings } = req.body as { name?: string; settings?: JsonValue };
+  const { name, settings, tracks, clips } = req.body as {
+    name?: string;
+    settings?: JsonValue;
+    tracks?: TrackInput[];
+    clips?: Record<string, ClipInput>;
+  };
   try {
-    const project = await updateProject(String(req.params.id), { name, settings });
+    const project = await updateProject(String(req.params.id), { name, settings, tracks, clips });
     if (!project) {
       res.status(404).json({ error: 'Project not found' });
       return;

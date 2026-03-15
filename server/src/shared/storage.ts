@@ -20,6 +20,12 @@ export function getExportPath(filename: string): string {
   return path.resolve(EXPORT_DIR, filename);
 }
 
+export function ensureExportDir(): string {
+  const dir = path.resolve(EXPORT_DIR);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 export function getServeUrl(filename: string): string {
   return `/uploads/${filename}`;
 }

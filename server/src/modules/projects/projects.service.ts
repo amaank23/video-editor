@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import type { CreateProjectInput, UpdateProjectInput } from './projects.types';
+import type { CreateProjectInput, UpdateProjectInput, ClipInput } from './projects.types';
 
 const DEFAULT_SETTINGS = {
   width: 1920,
@@ -38,7 +38,7 @@ export function findProjectById(id: string) {
     where: { id },
     include: {
       tracks: {
-        include: { clips: true },
+        include: { clips: { orderBy: { startTimeMs: 'asc' } } },
         orderBy: { order: 'asc' },
       },
       assets: true,
@@ -46,16 +46,132 @@ export function findProjectById(id: string) {
   });
 }
 
-/** Returns null if project not found (P2025), throws on all other errors. */
-export async function updateProject(id: string, { name, settings }: UpdateProjectInput) {
+/**
+ * Update project metadata and fully sync its timeline (tracks + clips).
+ * Uses a single transaction:
+ *  1. Update project name/settings
+ *  2. Delete tracks that were removed (cascades to their clips)
+ *  3. Upsert surviving/new tracks
+ *  4. Delete clips that were removed within surviving tracks
+ *  5. Upsert surviving/new clips
+ * Returns null if the project doesn't exist.
+ */
+export async function updateProject(
+  id: string,
+  { name, settings, tracks, clips }: UpdateProjectInput,
+) {
   try {
-    return await prisma.project.update({
-      where: { id },
-      data: {
-        ...(name !== undefined && { name }),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ...(settings !== undefined && { settings: settings as any }),
-      },
+    return await prisma.$transaction(async (tx) => {
+      // 1. Update project metadata
+      const project = await tx.project.update({
+        where: { id },
+        data: {
+          ...(name !== undefined && { name }),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ...(settings !== undefined && { settings: settings as any }),
+        },
+      });
+
+      // 2. Sync tracks and clips when provided
+      if (tracks !== undefined && clips !== undefined) {
+        const newTrackIds = new Set(tracks.map((t) => t.id));
+
+        // Delete removed tracks (their clips cascade-delete)
+        await tx.track.deleteMany({
+          where: { projectId: id, id: { notIn: [...newTrackIds] } },
+        });
+
+        // Upsert tracks
+        for (const track of tracks) {
+          await tx.track.upsert({
+            where: { id: track.id },
+            create: {
+              id: track.id,
+              projectId: id,
+              type: track.type,
+              name: track.name,
+              order: track.order,
+              locked: track.locked,
+              muted: track.muted,
+              collapsed: track.collapsed,
+            },
+            update: {
+              type: track.type,
+              name: track.name,
+              order: track.order,
+              locked: track.locked,
+              muted: track.muted,
+              collapsed: track.collapsed,
+            },
+          });
+        }
+
+        // Delete clips that no longer exist within surviving tracks
+        const newClipIds = new Set(Object.keys(clips));
+        await tx.clip.deleteMany({
+          where: {
+            trackId: { in: [...newTrackIds] },
+            id: { notIn: [...newClipIds] },
+          },
+        });
+
+        // Upsert clips
+        for (const clip of Object.values(clips) as ClipInput[]) {
+          const {
+            id: clipId,
+            trackId,
+            type,
+            startTimeMs,
+            durationMs,
+            trimStartMs,
+            trimEndMs,
+            transform,
+            animations,
+            name: clipName,
+            locked,
+            visible,
+            ...rest
+          } = clip;
+
+          // Everything else (assetId, volume, content, etc.) → properties JSON
+          const properties = rest as Prisma.InputJsonValue;
+
+          await tx.clip.upsert({
+            where: { id: clipId },
+            create: {
+              id: clipId,
+              trackId,
+              type,
+              startTimeMs,
+              durationMs,
+              trimStartMs,
+              trimEndMs,
+              transform: transform as Prisma.InputJsonValue,
+              animations: animations as Prisma.InputJsonValue,
+              name: clipName,
+              locked,
+              visible,
+              properties,
+            },
+            update: {
+              trackId,
+              type,
+              startTimeMs,
+              durationMs,
+              trimStartMs,
+              trimEndMs,
+              transform: transform as Prisma.InputJsonValue,
+              animations: animations as Prisma.InputJsonValue,
+              name: clipName,
+              locked,
+              visible,
+              properties,
+            },
+          });
+        }
+      }
+
+      return project;
     });
   } catch (err) {
     if (

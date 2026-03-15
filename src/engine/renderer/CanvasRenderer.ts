@@ -183,6 +183,13 @@ export class CanvasRenderer {
         if (!asset) break;
 
         const video = this.getOrCreateVideo(vc.assetId, asset.serveUrl);
+
+        // Apply color correction via CSS filter if set
+        if (vc.colorCorrection) {
+          const { brightness = 0, contrast = 0, saturation = 0 } = vc.colorCorrection;
+          ctx.filter = `brightness(${1 + brightness}) contrast(${1 + contrast}) saturate(${1 + saturation})`;
+        }
+
         if (video.readyState >= 2 /* HAVE_CURRENT_DATA */) {
           ctx.drawImage(video, cx - w / 2, cy - h / 2, w, h);
         } else if (video.paused) {
@@ -192,6 +199,7 @@ export class CanvasRenderer {
           const thumb = this.getNearestThumb(vc, asset, timeMs);
           if (thumb) ctx.drawImage(thumb, cx - w / 2, cy - h / 2, w, h);
         }
+        ctx.filter = 'none'; // reset after video/thumbnail draw
         break;
       }
 

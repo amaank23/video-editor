@@ -16,7 +16,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null, retryCount: 0 };
 
   static getDerivedStateFromError(error: Error): State {
-    return { error };
+    return { error, retryCount: 0 };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
