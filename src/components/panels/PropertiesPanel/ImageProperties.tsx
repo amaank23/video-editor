@@ -2,6 +2,7 @@
 
 import type { ImageClip } from '@shared/types/clips';
 import TransformControls from './TransformControls';
+import ColorCorrectionControls from './ColorCorrectionControls';
 
 interface Props { clip: ImageClip }
 
@@ -12,6 +13,7 @@ export default function ImageProperties({ clip }: Props) {
         <p className="text-sm text-neutral-200 truncate font-medium">{clip.name}</p>
         <p className="text-xs text-neutral-500 mt-0.5">Image clip</p>
       </div>
+      <ColorCorrectionControls clip={clip} />
       <TransformControls clip={clip} />
     </div>
   );

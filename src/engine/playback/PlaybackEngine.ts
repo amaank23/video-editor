@@ -12,6 +12,7 @@ export class PlaybackEngine {
   private _currentMs     = 0;
   private _durationMs    = 0;
   private _loop          = false;
+  private _rate          = 1;   // shuttle rate multiplier (negative = reverse)
 
   constructor(
     private readonly onTick: TickCallback,
@@ -34,6 +35,17 @@ export class PlaybackEngine {
   pause() {
     this.cancelRaf();
     // _currentMs stays at the paused position
+  }
+
+  /** Update the playback speed multiplier. Negative values play in reverse. */
+  setRate(rate: number) {
+    if (rate === this._rate) return;
+    // Re-anchor so the new rate starts from the current position
+    if (this.isRunning) {
+      this.startProjectMs = this._currentMs;
+      this.startWallMs    = performance.now();
+    }
+    this._rate = rate;
   }
 
   /** Update the current position without starting/stopping playback. */
@@ -63,7 +75,16 @@ export class PlaybackEngine {
 
   private readonly tick = () => {
     const elapsed = performance.now() - this.startWallMs;
-    let t = this.startProjectMs + elapsed;
+    let t = this.startProjectMs + elapsed * this._rate;
+
+    // Reverse playback: clamp at 0 and stop
+    if (t <= 0 && this._rate < 0) {
+      this._currentMs = 0;
+      this.onTick(0);
+      this.rafId = null;
+      this.onEnded();
+      return;
+    }
 
     if (t >= this._durationMs) {
       if (this._loop && this._durationMs > 0) {

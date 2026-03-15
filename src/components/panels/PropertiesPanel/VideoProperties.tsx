@@ -3,6 +3,7 @@
 import type { VideoClip } from '@shared/types/clips';
 import { useProjectStore } from '@/stores/projectStore';
 import TransformControls from './TransformControls';
+import ColorCorrectionControls from './ColorCorrectionControls';
 
 interface Props { clip: VideoClip }
 
@@ -58,6 +59,8 @@ export default function VideoProperties({ clip }: Props) {
           ))}
         </div>
       </div>
+
+      <ColorCorrectionControls clip={clip} />
 
       <TransformControls clip={clip} />
     </div>

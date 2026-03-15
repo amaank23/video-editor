@@ -43,6 +43,12 @@ interface BaseClip {
   visible: boolean;
 }
 
+export interface ColorCorrection {
+  brightness: number;   // -1 to 1  (0 = no change)
+  contrast: number;     // -1 to 1
+  saturation: number;   // -1 to 1
+}
+
 export interface VideoClip extends BaseClip {
   type: 'video';
   assetId: AssetId;
@@ -54,11 +60,7 @@ export interface VideoClip extends BaseClip {
     width: number;
     height: number;
   };
-  colorCorrection?: {
-    brightness: number;   // -1 to 1
-    contrast: number;
-    saturation: number;
-  };
+  colorCorrection?: ColorCorrection;
 }
 
 export interface AudioClip extends BaseClip {
@@ -73,6 +75,7 @@ export interface AudioClip extends BaseClip {
 export interface ImageClip extends BaseClip {
   type: 'image';
   assetId: AssetId;
+  colorCorrection?: ColorCorrection;
 }
 
 export interface TextClip extends BaseClip {

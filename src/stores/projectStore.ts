@@ -36,6 +36,7 @@ interface ProjectState {
 
   addClip: (clip: Clip) => void;
   removeClip: (id: ClipId) => void;
+  removeMultipleClips: (ids: ClipId[]) => void;
   updateClip: (id: ClipId, patch: Partial<Clip>) => void;
   moveClip: (id: ClipId, newStartTimeMs: number, newTrackId?: TrackId) => void;
   moveMultipleClips: (moves: Array<{ id: ClipId; newStartTimeMs: number }>) => void;
@@ -194,6 +195,22 @@ export const useProjectStore = create<ProjectState>((set) => ({
   removeClip: (id) =>
     set((s) => {
       const updated = removeClipFromProject(s.project, id);
+      return {
+        ...withHistory(s),
+        project: {
+          ...updated,
+          timeline: { ...updated.timeline, durationMs: maxDuration(updated.clips) },
+          updatedAt: Date.now(),
+        },
+      };
+    }),
+
+  removeMultipleClips: (ids) =>
+    set((s) => {
+      let updated = s.project;
+      for (const id of ids) {
+        updated = removeClipFromProject(updated, id);
+      }
       return {
         ...withHistory(s),
         project: {

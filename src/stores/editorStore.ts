@@ -14,6 +14,7 @@ export interface PlaybackState {
   loopEnabled: boolean;
   inPointMs: number | null;
   outPointMs: number | null;
+  shuttleRate: number;   // 1 = normal, -2 = reverse 2×, 2 = forward 2×
 }
 
 export interface SelectionState {
@@ -49,6 +50,7 @@ interface EditorState {
   toggleLoop: () => void;
   setInPoint: (ms: number | null) => void;
   setOutPoint: (ms: number | null) => void;
+  setShuttleRate: (rate: number) => void;
 
   selectClip: (id: ClipId, additive?: boolean) => void;
   selectTrack: (id: TrackId | null) => void;
@@ -70,6 +72,7 @@ export const useEditorStore = create<EditorState>((set) => ({
     loopEnabled: false,
     inPointMs: null,
     outPointMs: null,
+    shuttleRate: 1,
   },
 
   selection: {
@@ -102,6 +105,9 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   setOutPoint: (ms) =>
     set((s) => ({ playback: { ...s.playback, outPointMs: ms } })),
+
+  setShuttleRate: (rate) =>
+    set((s) => ({ playback: { ...s.playback, shuttleRate: rate } })),
 
   selectClip: (id, additive = false) =>
     set((s) => ({

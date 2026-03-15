@@ -71,6 +71,7 @@ export function usePlayback(canvasRef: React.RefObject<HTMLCanvasElement | null>
   // ── React to isPlaying changes ─────────────────────────────────────────
   const isPlaying    = useEditorStore((s) => s.playback.isPlaying);
   const loopEnabled  = useEditorStore((s) => s.playback.loopEnabled);
+  const shuttleRate  = useEditorStore((s) => s.playback.shuttleRate);
 
   useEffect(() => {
     const engine   = engineRef.current;
@@ -87,6 +88,7 @@ export function usePlayback(canvasRef: React.RefObject<HTMLCanvasElement | null>
 
       audio?.play(project, assets, playheadMs);
       engine.play(playheadMs, durationMs, loopEnabled);
+      engine.setRate(useEditorStore.getState().playback.shuttleRate);
     } else {
       engine.pause();
       renderer?.pauseVideos();
@@ -103,6 +105,12 @@ export function usePlayback(canvasRef: React.RefObject<HTMLCanvasElement | null>
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying]);
+
+  // ── Update engine rate when shuttle rate changes ──────────────────────
+  useEffect(() => {
+    engineRef.current?.setRate(shuttleRate);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shuttleRate]);
 
   // ── Re-render when project changes (clip edited, added, moved) ───────
   // updatedAt changes on every projectStore mutation so the canvas stays
