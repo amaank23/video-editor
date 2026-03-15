@@ -23,6 +23,7 @@ export class PlaybackEngine {
   get isRunning()  { return this.rafId !== null; }
 
   play(fromMs: number, durationMs: number, loop = false) {
+    if (durationMs <= 0) return;
     this.cancelRaf();
     this._durationMs    = durationMs;
     this._loop          = loop;
@@ -37,9 +38,9 @@ export class PlaybackEngine {
     // _currentMs stays at the paused position
   }
 
-  /** Update the playback speed multiplier. Negative values play in reverse. */
+  /** Update the playback speed multiplier. Negative values play in reverse. Rate 0 is rejected. */
   setRate(rate: number) {
-    if (rate === this._rate) return;
+    if (rate === 0 || rate === this._rate) return;
     // Re-anchor so the new rate starts from the current position
     if (this.isRunning) {
       this.startProjectMs = this._currentMs;
@@ -80,8 +81,8 @@ export class PlaybackEngine {
     // Reverse playback: clamp at 0 and stop
     if (t <= 0 && this._rate < 0) {
       this._currentMs = 0;
+      this.rafId = null;   // mark stopped before callbacks so isRunning is accurate
       this.onTick(0);
-      this.rafId = null;
       this.onEnded();
       return;
     }
@@ -95,8 +96,8 @@ export class PlaybackEngine {
         t = wrapped;
       } else {
         this._currentMs = this._durationMs;
+        this.rafId = null;   // mark stopped before callbacks so isRunning is accurate
         this.onTick(this._currentMs);
-        this.rafId = null;
         this.onEnded();
         return;
       }

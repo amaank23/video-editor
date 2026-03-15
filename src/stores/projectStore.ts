@@ -81,8 +81,7 @@ function removeClipFromProject(project: Project, clipId: ClipId): Project {
   const tracks = project.timeline.tracks.map((t) =>
     t.id === clip.trackId ? { ...t, clipIds: t.clipIds.filter((id) => id !== clipId) } : t,
   );
-  const clips = { ...project.clips };
-  delete clips[clipId];
+  const { [clipId]: _removed, ...clips } = project.clips;
 
   return { ...project, timeline: { ...project.timeline, tracks }, clips };
 }
@@ -141,8 +140,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((s) => {
       const track = s.project.timeline.tracks.find((t) => t.id === id);
       if (!track) return s;
-      const clips = { ...s.project.clips };
-      track.clipIds.forEach((cid) => delete clips[cid]);
+      const clips = Object.fromEntries(
+        Object.entries(s.project.clips).filter(([cid]) => !track.clipIds.includes(cid))
+      ) as typeof s.project.clips;
       return {
         ...withHistory(s),
         project: {
@@ -270,15 +270,16 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   moveMultipleClips: (moves) =>
     set((s) => {
+      // Collect affected track IDs from original state before any mutation
+      const affectedTrackIds = new Set(
+        moves.map((m) => s.project.clips[m.id]?.trackId).filter((tid): tid is string => !!tid),
+      );
       const clips = { ...s.project.clips };
       for (const { id, newStartTimeMs } of moves) {
         const existing = clips[id];
         if (!existing) continue;
         clips[id] = { ...existing, startTimeMs: Math.max(0, newStartTimeMs) } as Clip;
       }
-      const affectedTrackIds = new Set(
-        moves.map((m) => clips[m.id]?.trackId).filter(Boolean) as string[],
-      );
       const tracks = s.project.timeline.tracks.map((t) =>
         affectedTrackIds.has(t.id)
           ? { ...t, clipIds: [...t.clipIds].sort((a, b) => (clips[a]?.startTimeMs ?? 0) - (clips[b]?.startTimeMs ?? 0)) }
@@ -299,6 +300,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((s) => {
       const existing = s.project.clips[id];
       if (!existing) return s;
+      if (trimEndMs <= trimStartMs) return s;
       const clips = {
         ...s.project.clips,
         [id]: { ...existing, trimStartMs, trimEndMs, durationMs: trimEndMs - trimStartMs } as Clip,
@@ -315,27 +317,26 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }),
 
   splitClip: (id, atTimeMs) => {
-    // IDs must be generated before set() so we can return them
+    // Read state before set() so we can validate and return IDs without side effects inside set()
+    const clip = useProjectStore.getState().project.clips[id];
+    if (!clip) return null;
+    if (atTimeMs <= clip.startTimeMs || atTimeMs >= clip.startTimeMs + clip.durationMs) return null;
+
     const leftId  = nanoid();
     const rightId = nanoid();
-    let result: [ClipId, ClipId] | null = null;
+
+    const leftDuration  = atTimeMs - clip.startTimeMs;
+    const rightDuration = clip.durationMs - leftDuration;
+
+    const leftClip  = { ...clip, id: leftId,  durationMs: leftDuration,  trimEndMs:   clip.trimStartMs + leftDuration } as Clip;
+    const rightClip = { ...clip, id: rightId, startTimeMs: atTimeMs, durationMs: rightDuration, trimStartMs: clip.trimStartMs + leftDuration } as Clip;
 
     set((s) => {
-      // All reads happen inside set() against the guaranteed-fresh state
-      const clip = s.project.clips[id];
-      if (!clip) return s;
-      if (atTimeMs <= clip.startTimeMs || atTimeMs >= clip.startTimeMs + clip.durationMs) return s;
+      // Guard again in case state changed between read and set
+      if (!s.project.clips[id]) return s;
 
-      const leftDuration  = atTimeMs - clip.startTimeMs;
-      const rightDuration = clip.durationMs - leftDuration;
-
-      const leftClip  = { ...clip, id: leftId,  durationMs: leftDuration,  trimEndMs:   clip.trimStartMs + leftDuration } as Clip;
-      const rightClip = { ...clip, id: rightId, startTimeMs: atTimeMs, durationMs: rightDuration, trimStartMs: clip.trimStartMs + leftDuration } as Clip;
-
-      const clips = { ...s.project.clips };
-      delete clips[id];
-      clips[leftId]  = leftClip;
-      clips[rightId] = rightClip;
+      const { [id]: _removed, ...clipsWithout } = s.project.clips;
+      const clips = { ...clipsWithout, [leftId]: leftClip, [rightId]: rightClip };
 
       const tracks = s.project.timeline.tracks.map((t) =>
         t.id === clip.trackId
@@ -348,14 +349,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
           : t,
       );
 
-      result = [leftId, rightId];
       return {
         ...withHistory(s),
         project: { ...s.project, timeline: { ...s.project.timeline, tracks }, clips, updatedAt: Date.now() },
       };
     });
 
-    return result;
+    return [leftId, rightId];
   },
 
   // ── Asset refs ───────────────────────────────────────────────────────────
@@ -387,7 +387,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set((s) => {
       if (s.future.length === 0) return s;
       const [next, ...future] = s.future;
-      return { project: next, past: [...s.past, s.project], future };
+      return { project: next, past: [...s.past, s.project].slice(-MAX_UNDO_STEPS), future };
     }),
 
   pushHistory: () => set((s) => ({ ...withHistory(s) })),

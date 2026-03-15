@@ -9,7 +9,6 @@ export function useKeyboardShortcuts() {
   const splitClip           = useProjectStore((s) => s.splitClip);
   const selectedClipIds     = useEditorStore((s) => s.selection.clipIds);
   const clearSelection      = useEditorStore((s) => s.clearSelection);
-  const isPlaying           = useEditorStore((s) => s.playback.isPlaying);
   const setPlaying          = useEditorStore((s) => s.setPlaying);
   const setPlayheadMs       = useEditorStore((s) => s.setPlayheadMs);
   const setInPoint          = useEditorStore((s) => s.setInPoint);
@@ -26,10 +25,11 @@ export function useKeyboardShortcuts() {
         target.isContentEditable
       ) return;
 
-      // Space — toggle play / pause (reset shuttle rate on pause)
+      // Space — toggle play / pause (read live state to avoid stale closure)
       if (e.code === 'Space') {
         e.preventDefault();
-        if (isPlaying) {
+        const currentlyPlaying = useEditorStore.getState().playback.isPlaying;
+        if (currentlyPlaying) {
           setShuttleRate(1);
           setPlaying(false);
         } else {
@@ -137,7 +137,7 @@ export function useKeyboardShortcuts() {
   }, [
     undo, redo, removeMultipleClips, splitClip,
     selectedClipIds, clearSelection,
-    isPlaying, setPlaying, setPlayheadMs,
+    setPlaying, setPlayheadMs,
     setInPoint, setOutPoint, setShuttleRate,
   ]);
 }

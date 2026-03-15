@@ -80,15 +80,16 @@ export function usePlayback(canvasRef: React.RefObject<HTMLCanvasElement | null>
     if (!engine) return;
 
     if (isPlaying) {
-      const { playheadMs }  = useEditorStore.getState().playback;
+      // Read all values from live state to avoid stale closures
+      const { playheadMs, loopEnabled: loop, shuttleRate } = useEditorStore.getState().playback;
       const { timeline }    = useProjectStore.getState().project;
       const durationMs      = timeline.durationMs || 60_000;
       const project         = useProjectStore.getState().project;
       const assets          = useMediaStore.getState().assets;
 
       audio?.play(project, assets, playheadMs);
-      engine.play(playheadMs, durationMs, loopEnabled);
-      engine.setRate(useEditorStore.getState().playback.shuttleRate);
+      engine.play(playheadMs, durationMs, loop);
+      engine.setRate(shuttleRate);
     } else {
       engine.pause();
       renderer?.pauseVideos();

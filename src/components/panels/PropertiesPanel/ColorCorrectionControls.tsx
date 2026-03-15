@@ -42,7 +42,7 @@ export default function ColorCorrectionControls({ clip }: Props) {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <label className="text-xs text-neutral-500 uppercase tracking-wider">Color</label>
+        <p className="text-xs text-neutral-500 uppercase tracking-wider">Color</p>
         {!isDefault && (
           <button
             onClick={handleReset}
@@ -59,10 +59,13 @@ export default function ColorCorrectionControls({ clip }: Props) {
             <span className="text-xs text-neutral-500 w-20 shrink-0">{label}</span>
             <input
               type="range"
+              aria-label={label}
               min={-1} max={1} step={0.01}
               value={cc[key]}
               onChange={(e) => handleChange(key, parseFloat(e.target.value))}
               onMouseUp={handleCommit}
+              onKeyUp={handleCommit}
+              onTouchEnd={handleCommit}
               className="flex-1 accent-indigo-500"
             />
             <span className="text-xs text-neutral-400 w-10 text-right tabular-nums">

@@ -23,14 +23,17 @@ export default function VideoProperties({ clip }: Props) {
 
       {/* Volume */}
       <div>
-        <label className="text-xs text-neutral-500 uppercase tracking-wider block mb-2">Volume</label>
+        <p className="text-xs text-neutral-500 uppercase tracking-wider block mb-2">Volume</p>
         <div className="flex items-center gap-2">
           <input
             type="range"
+            aria-label="Volume"
             min={0} max={1} step={0.01}
             value={clip.volume}
             onChange={(e) => updateClip(clip.id, { volume: parseFloat(e.target.value) })}
             onMouseUp={pushHistory}
+            onKeyUp={pushHistory}
+            onTouchEnd={pushHistory}
             className="flex-1 accent-indigo-500"
           />
           <span className="text-xs text-neutral-400 w-8 text-right tabular-nums">
@@ -41,7 +44,7 @@ export default function VideoProperties({ clip }: Props) {
 
       {/* Playback rate */}
       <div>
-        <label className="text-xs text-neutral-500 uppercase tracking-wider block mb-2">Speed</label>
+        <p className="text-xs text-neutral-500 uppercase tracking-wider block mb-2">Speed</p>
         <div className="flex flex-wrap gap-1">
           {RATES.map((r) => (
             <button
