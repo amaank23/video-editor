@@ -3,11 +3,14 @@
 import { useMediaStore } from '@/stores/mediaStore';
 import AssetCard from './AssetCard';
 
-export default function MediaLibrary() {
+interface MediaLibraryProps {
+  onDelete?: (assetId: string) => void;
+}
+
+export default function MediaLibrary({ onDelete }: MediaLibraryProps) {
   // Select stable object references — never call Object.values/entries inside a selector
   // because they return new arrays on every call, causing useSyncExternalStore to loop.
   const assetMap = useMediaStore((s) => s.assets);
-  const removeAsset = useMediaStore((s) => s.removeAsset);
   const uploadProgress = useMediaStore((s) => s.uploadProgress);
 
   const assets = Object.values(assetMap);
@@ -50,7 +53,7 @@ export default function MediaLibrary() {
           <AssetCard
             key={asset.id}
             asset={asset}
-            onDelete={removeAsset}
+            onDelete={onDelete}
           />
         ))}
       </div>

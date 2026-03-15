@@ -1,13 +1,17 @@
 'use client';
 
 import { useRef, useCallback, useEffect } from 'react';
+import { nanoid } from 'nanoid';
 import { useProjectStore } from '@/stores/projectStore';
 import { useEditorStore } from '@/stores/editorStore';
+import { useMediaStore } from '@/stores/mediaStore';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { msToTimecode } from '@/lib/utils/time';
+import { DEFAULT_TRANSFORM } from '@/stores/projectStore';
 import TrackHeader from './TrackHeader';
 import ClipBlock from './ClipBlock';
 import Playhead from './Playhead';
+import type { Clip, TrackType } from '@shared/types/clips';
 
 const TRACK_HEIGHT  = 56;
 const HEADER_WIDTH  = 128;
@@ -29,8 +33,13 @@ export default function Timeline() {
   const setScrollLeftMs = useEditorStore((s) => s.setScrollLeftMs);
   const setZoom         = useEditorStore((s) => s.setZoom);
 
+  const addClip  = useProjectStore((s) => s.addClip);
+  const addTrack = useProjectStore((s) => s.addTrack);
+  const assets   = useMediaStore((s) => s.assets);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const rulerRef     = useRef<HTMLDivElement>(null);
+  const lanesRef     = useRef<HTMLDivElement>(null);
   const rulerDragRef = useRef<{ startX: number; startMs: number } | null>(null);
 
   // ms → pixel offset relative to the ruler/clip area (header excluded)
@@ -100,6 +109,77 @@ export default function Timeline() {
     }
   }
 
+  // ── Asset drag-and-drop from media library ─────────────────────────────
+  function onLanesDragOver(e: React.DragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer.types.includes('application/x-asset-id')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }
+
+  function onLanesDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const assetId = e.dataTransfer.getData('application/x-asset-id');
+    if (!assetId) return;
+
+    const asset = assets[assetId];
+    if (!asset) return;
+
+    // Calculate drop time from X position within the lanes area
+    const lanesRect = lanesRef.current?.getBoundingClientRect();
+    if (!lanesRect) return;
+    const dropX  = e.clientX - lanesRect.left;
+    const dropMs = Math.max(0, (dropX / zoomLevel) * 1000 + scrollLeftMs);
+
+    // Calculate which track row was targeted from Y position
+    const dropY     = e.clientY - lanesRect.top;
+    const trackIndex = Math.floor(dropY / TRACK_HEIGHT);
+
+    // Determine asset→track type mapping
+    const neededType: TrackType = asset.type === 'audio' ? 'audio'
+      : asset.type === 'image' ? 'overlay'
+      : 'video';
+
+    // Find first compatible track in the drop row, else create one
+    const compatibleTracks = tracks.filter((t) => t.type === neededType);
+    let targetTrackId: string;
+
+    if (trackIndex < compatibleTracks.length) {
+      targetTrackId = compatibleTracks[trackIndex].id;
+    } else if (compatibleTracks.length > 0) {
+      targetTrackId = compatibleTracks[compatibleTracks.length - 1].id;
+    } else {
+      targetTrackId = addTrack(neededType, asset.type === 'audio' ? 'Audio' : asset.type === 'image' ? 'Overlay' : 'Video');
+    }
+
+    const clipDurationMs = asset.durationMs ?? 5_000;
+
+    // Build clip depending on asset type
+    const base = {
+      id: nanoid(),
+      trackId: targetTrackId,
+      startTimeMs: dropMs,
+      durationMs: clipDurationMs,
+      trimStartMs: 0,
+      trimEndMs: clipDurationMs,
+      transform: { ...DEFAULT_TRANSFORM },
+      animations: [],
+      name: asset.name,
+      locked: false,
+      visible: true,
+    };
+
+    let clip: Clip;
+    if (asset.type === 'video') {
+      clip = { ...base, type: 'video', assetId: assetId, volume: 1, playbackRate: 1 };
+    } else if (asset.type === 'audio') {
+      clip = { ...base, type: 'audio', assetId: assetId, volume: 1, playbackRate: 1, fadeInMs: 0, fadeOutMs: 0 };
+    } else {
+      clip = { ...base, type: 'image', assetId: assetId };
+    }
+
+    addClip(clip);
+  }
+
   const playheadX = msToX(playheadMs);
 
   return (
@@ -163,8 +243,11 @@ export default function Timeline() {
 
         {/* Clip lanes */}
         <div
+          ref={lanesRef}
           className="flex-1 relative overflow-hidden"
           onClick={clearSelection}
+          onDragOver={onLanesDragOver}
+          onDrop={onLanesDrop}
         >
           {tracks.map((track) => (
             <div

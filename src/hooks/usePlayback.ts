@@ -103,6 +103,24 @@ export function usePlayback(canvasRef: React.RefObject<HTMLCanvasElement | null>
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying]);
 
+  // ── Re-render when project changes (clip edited, added, moved) ───────
+  // updatedAt changes on every projectStore mutation so the canvas stays
+  // in sync with the properties panel without the user having to scrub.
+  const projectUpdatedAt = useProjectStore((s) => s.project.updatedAt);
+
+  useEffect(() => {
+    if (engineRef.current?.isRunning) return; // engine already renders every frame
+    const renderer = rendererRef.current;
+    const canvas   = canvasRef.current;
+    if (!canvas || !renderer) return;
+    const ctx     = canvas.getContext('2d');
+    const project = useProjectStore.getState().project;
+    const assets  = useMediaStore.getState().assets;
+    const timeMs  = useEditorStore.getState().playback.playheadMs;
+    if (ctx) renderer.render(ctx, project, timeMs, assets);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectUpdatedAt]);
+
   // ── Re-render on external seek (playhead moved while paused) ──────────
   const playheadMs = useEditorStore((s) => s.playback.playheadMs);
 

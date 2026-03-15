@@ -2,6 +2,11 @@
 
 import { useEditorStore } from '@/stores/editorStore';
 import { useProjectStore } from '@/stores/projectStore';
+import VideoProperties from './VideoProperties';
+import AudioProperties from './AudioProperties';
+import ImageProperties from './ImageProperties';
+import TextProperties  from './TextProperties';
+import type { VideoClip, AudioClip, ImageClip, TextClip } from '@shared/types/clips';
 
 export default function PropertiesPanel() {
   const selectedClipIds = useEditorStore((s) => s.selection.clipIds);
@@ -25,52 +30,15 @@ export default function PropertiesPanel() {
             </svg>
             <p className="text-xs">Select a clip to edit its properties</p>
           </div>
-        ) : (
-          <div className="p-3 space-y-4">
-            {/* Clip info */}
-            <div>
-              <label className="text-xs text-neutral-500 uppercase tracking-wider">Clip</label>
-              <p className="text-sm text-neutral-200 mt-1 truncate">{selectedClip.name}</p>
-              <p className="text-xs text-neutral-500 capitalize">{selectedClip.type}</p>
-            </div>
-
-            {/* Position placeholder */}
-            <div>
-              <label className="text-xs text-neutral-500 uppercase tracking-wider block mb-2">Transform</label>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-neutral-400 w-8">X</span>
-                  <input
-                    type="number"
-                    value={Math.round(selectedClip.transform.x * 100)}
-                    readOnly
-                    className="flex-1 bg-neutral-800 text-xs text-neutral-200 px-2 py-1 rounded border border-neutral-700"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-neutral-400 w-8">Y</span>
-                  <input
-                    type="number"
-                    value={Math.round(selectedClip.transform.y * 100)}
-                    readOnly
-                    className="flex-1 bg-neutral-800 text-xs text-neutral-200 px-2 py-1 rounded border border-neutral-700"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-neutral-400 w-8">Opacity</span>
-                  <input
-                    type="number"
-                    value={Math.round(selectedClip.transform.opacity * 100)}
-                    readOnly
-                    className="flex-1 bg-neutral-800 text-xs text-neutral-200 px-2 py-1 rounded border border-neutral-700"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <p className="text-xs text-neutral-600 italic">Full property editing in Phase 4</p>
-          </div>
-        )}
+        ) : selectedClip.type === 'video' ? (
+          <VideoProperties clip={selectedClip as VideoClip} />
+        ) : selectedClip.type === 'audio' ? (
+          <AudioProperties clip={selectedClip as AudioClip} />
+        ) : selectedClip.type === 'image' ? (
+          <ImageProperties clip={selectedClip as ImageClip} />
+        ) : selectedClip.type === 'text' ? (
+          <TextProperties clip={selectedClip as TextClip} />
+        ) : null}
       </div>
     </div>
   );

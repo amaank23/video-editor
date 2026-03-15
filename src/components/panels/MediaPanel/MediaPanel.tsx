@@ -2,13 +2,10 @@
 
 import UploadZone from './UploadZone';
 import MediaLibrary from './MediaLibrary';
+import { useMediaUpload } from '@/hooks/useMediaUpload';
 
 export default function MediaPanel() {
-  function handleFiles(files: File[]) {
-    // Full upload implementation in Phase 4
-    // For Phase 1: just log
-    console.log('[MediaPanel] Files selected (upload in Phase 4):', files.map((f) => f.name));
-  }
+  const { upload, remove } = useMediaUpload();
 
   return (
     <div className="flex flex-col h-full">
@@ -18,10 +15,10 @@ export default function MediaPanel() {
       </div>
 
       {/* Upload zone */}
-      <UploadZone onFiles={handleFiles} />
+      <UploadZone onFiles={upload} />
 
       {/* Library */}
-      <MediaLibrary />
+      <MediaLibrary onDelete={remove} />
     </div>
   );
 }

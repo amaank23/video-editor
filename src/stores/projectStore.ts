@@ -23,6 +23,7 @@ interface ProjectState {
   future: Project[];
 
   setProject: (project: Project) => void;
+  setProjectId: (id: string) => void;
   updateProjectName: (name: string) => void;
   updateProjectSettings: (patch: Partial<Project['settings']>) => void;
 
@@ -85,6 +86,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
   future: [],
 
   setProject: (project) => set({ project, past: [], future: [] }),
+
+  setProjectId: (id) => set((s) => ({ project: { ...s.project, id } })),
 
   updateProjectName: (name) =>
     set((s) => ({ project: { ...s.project, name, updatedAt: Date.now() } })),

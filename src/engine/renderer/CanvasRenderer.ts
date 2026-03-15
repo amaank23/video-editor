@@ -17,11 +17,11 @@ export class CanvasRenderer {
   getOrCreateVideo(assetId: string, serveUrl: string): HTMLVideoElement {
     if (!this.videos.has(assetId)) {
       const video = document.createElement('video');
-      video.src = serveUrl;
+      // crossOrigin MUST be set before src — setting src first starts a
+      // non-CORS fetch, tainting the canvas when drawImage is called later.
       video.crossOrigin = 'anonymous';
       video.preload = 'auto';
-      // Audio comes from the video element directly during playback
-      video.volume = 1;
+      video.src = serveUrl;
       this.videos.set(assetId, video);
     }
     return this.videos.get(assetId)!;
