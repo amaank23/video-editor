@@ -39,6 +39,10 @@ interface EditorState {
   exportModalOpen: boolean;
   exportProgress: number | null;  // 0-1, null = not exporting
 
+  // Auto-save status
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+  setSaveStatus: (status: 'idle' | 'saving' | 'saved' | 'error') => void;
+
   // Actions
   setPlaying: (playing: boolean) => void;
   setPlayheadMs: (ms: number) => void;
@@ -82,6 +86,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   propertiesPanelOpen: true,
   exportModalOpen: false,
   exportProgress: null,
+  saveStatus: 'idle',
 
   setPlaying: (playing) =>
     set((s) => ({ playback: { ...s.playback, isPlaying: playing } })),
@@ -136,4 +141,5 @@ export const useEditorStore = create<EditorState>((set) => ({
   setPropertiesPanelOpen: (open) => set({ propertiesPanelOpen: open }),
   setExportModalOpen: (open) => set({ exportModalOpen: open }),
   setExportProgress: (progress) => set({ exportProgress: progress }),
+  setSaveStatus: (status) => set({ saveStatus: status }),
 }));

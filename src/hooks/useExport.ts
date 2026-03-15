@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import { useEditorStore } from '@/stores/editorStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { startExportJob, pollExportJob, getExportDownloadUrl } from '@/lib/api/projects';
@@ -25,6 +25,14 @@ export function useExport() {
   const setExportModalOpen = useEditorStore((s) => s.setExportModalOpen);
   const projectId          = useProjectStore((s) => s.project.id);
   const pollRef            = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Clear interval and reset progress if the component unmounts mid-export
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      setExportProgress(null);
+    };
+  }, [setExportProgress]);
 
   const cancel = () => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -52,11 +60,13 @@ export function useExport() {
               clearInterval(pollRef.current!);
               pollRef.current = null;
               setExportProgress(null);
-              // Open download in a new tab
+              // Trigger download
               const a = document.createElement('a');
               a.href = getExportDownloadUrl(job.jobId);
               a.download = `export_${job.jobId}.mp4`;
+              document.body.appendChild(a);
               a.click();
+              a.remove();
               resolve();
             } else if (status.status === 'error') {
               clearInterval(pollRef.current!);

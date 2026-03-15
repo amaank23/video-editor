@@ -3,8 +3,8 @@ import { triggerExport, getExportStatus, downloadExport } from './export.control
 
 const router = Router();
 
-router.post('/:projectId', triggerExport);
 router.get('/status/:jobId', getExportStatus);
 router.get('/download/:jobId', downloadExport);
+router.post('/:projectId', triggerExport);
 
 export default router;

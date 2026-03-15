@@ -3,6 +3,21 @@
 import ProjectNameInput from './ProjectNameInput';
 import UndoRedoButtons from './UndoRedoButtons';
 import ExportButton from './ExportButton';
+import { useEditorStore } from '@/stores/editorStore';
+
+function SaveIndicator() {
+  const status = useEditorStore((s) => s.saveStatus);
+  if (status === 'idle') return null;
+  return (
+    <span className={`text-xs transition-colors ${
+      status === 'saving' ? 'text-neutral-500' :
+      status === 'saved'  ? 'text-green-500'   :
+                            'text-red-400'
+    }`}>
+      {status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : 'Save failed'}
+    </span>
+  );
+}
 
 export default function TopBar() {
   return (
@@ -11,6 +26,7 @@ export default function TopBar() {
       <div className="flex items-center gap-3 min-w-0">
         <span className="text-sm font-bold text-indigo-400 shrink-0">VideoEditor</span>
         <ProjectNameInput />
+        <SaveIndicator />
       </div>
 
       {/* Center: Undo / Redo */}

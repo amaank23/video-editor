@@ -108,12 +108,20 @@ function EditorShellInner() {
         </svg>
         <p className="text-red-400 text-sm font-medium">Failed to connect to server</p>
         <p className="text-xs text-neutral-500 max-w-xs text-center">{initError}</p>
-        <button
-          onClick={() => window.location.reload()}
-          className="mt-2 px-4 py-1.5 text-xs bg-neutral-700 hover:bg-neutral-600 text-neutral-200 rounded transition-colors"
-        >
-          Retry
-        </button>
+        <div className="flex gap-2 mt-2">
+          <button
+            onClick={() => router.push('/')}
+            className="px-4 py-1.5 text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded transition-colors"
+          >
+            Back to projects
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-1.5 text-xs bg-neutral-700 hover:bg-neutral-600 text-neutral-200 rounded transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }

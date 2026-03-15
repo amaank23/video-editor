@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import { nanoid } from 'nanoid';
 import ffmpeg from 'fluent-ffmpeg';
 import { prisma } from '../../lib/prisma';
@@ -40,6 +39,24 @@ function transformToPx(
 /** Escape text for FFmpeg drawtext filter. */
 function escapeDrawtext(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/:/g, '\\:');
+}
+
+/** Validate jobId is a nanoid-shaped alphanumeric string (prevents path traversal). */
+const JOB_ID_RE = /^[A-Za-z0-9_-]{10,30}$/;
+function isValidJobId(id: string): boolean {
+  return JOB_ID_RE.test(id);
+}
+
+/** Clamp a numeric DB value into a safe range, falling back to `def`. */
+function safeNum(val: unknown, def: number, min: number, max: number): number {
+  const n = Number(val);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
+}
+
+/** Validate a hex color string and return an FFmpeg-safe value (hex without #). */
+function safeColor(val: unknown, def = 'ffffff'): string {
+  const s = String(val ?? '').replace(/^#/, '');
+  return /^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(s) ? s : def;
 }
 
 // ── Main export builder ────────────────────────────────────────────────────
@@ -170,13 +187,12 @@ async function runExport(
         prevVideo = `comp${n}`;
 
         // Audio track from this video clip (only if the file has an audio stream)
-        console.log(`[export] clip ${clip.id} assetId=${assetId} hasAudio=${hasAudioMap.get(assetId)}`);
         if (opts.includeAudio !== false && hasAudioMap.get(assetId)) {
-          const vol = (props.volume as number) ?? 1;
-          const delaySamples = Math.round(delay * 44100);
+          const vol = safeNum(props.volume, 1, 0, 10);
+          const delayMs = Math.round(delay * 1000);
           filterParts.push(
             `[${idx}:a]atrim=start=${trimStart}:duration=${trimDur},` +
-            `asetpts=PTS-STARTPTS,adelay=${delaySamples}:all=1,volume=${vol}[a${n}]`
+            `asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1,volume=${vol}[a${n}]`
           );
           audioStreams.push(`[a${n}]`);
         }
@@ -194,11 +210,9 @@ async function runExport(
         );
         prevVideo = `comp${n}`;
       } else if (clip.type === 'text') {
-        const textContent  = (props.content    as string) ?? '';
-        const fontFamily   = (props.fontFamily  as string) ?? 'Arial';
-        const fontSize     = (props.fontSize    as number) ?? 36;
-        const color        = ((props.color as string) ?? '#ffffff').replace('#', '0x');
-        const delay        = Math.max(0, clipStartSec);
+        const textContent  = String(props.content ?? '');
+        const fontSize     = safeNum(props.fontSize, 36, 1, 500);
+        const color        = safeColor(props.color);
         const textLines    = textContent.split('\n');
         const escapedLines = textLines.map((l) => escapeDrawtext(l));
 
@@ -208,7 +222,7 @@ async function runExport(
           const yOffset = Math.round(y + li * fontSize * 1.2);
           textBase +=
             `drawtext=text='${escapedLines[li]}':x=${x}:y=${yOffset}` +
-            `:fontsize=${fontSize}:fontcolor=${color}:enable='${enableExpr}'`;
+            `:fontsize=${fontSize}:fontcolor=0x${color}:enable='${enableExpr}'`;
           if (li < escapedLines.length - 1) textBase += ',';
         }
         textBase += `[comp${n}]`;
@@ -220,19 +234,30 @@ async function runExport(
           const trimStart   = clip.trimStartMs / 1000;
           const trimDur     = clip.durationMs  / 1000;
           const delay       = Math.max(0, clipStartSec);
-          const vol         = (props.volume as number) ?? 1;
-          const delaySamples = Math.round(delay * 44100);
+          const vol     = safeNum(props.volume, 1, 0, 10);
+          const delayMs = Math.round(delay * 1000);
           filterParts.push(
             `[${idx}:a]atrim=start=${trimStart}:duration=${trimDur},` +
-            `asetpts=PTS-STARTPTS,adelay=${delaySamples}:all=1,volume=${vol}[a${n}]`
+            `asetpts=PTS-STARTPTS,adelay=${delayMs}:all=1,volume=${vol}[a${n}]`
           );
           audioStreams.push(`[a${n}]`);
         }
       }
     }
 
-    const filterComplex = filterParts.join('; ');
-    const outputPath = path.join(ensureExportDir(), `${jobId}.mp4`);
+    // If multiple audio streams, mix them down to one with amix
+    const outputMappings: string[] = [`[${prevVideo}]`];
+    if (audioStreams.length > 1) {
+      const amixLabel = 'amix_out';
+      filterParts.push(
+        audioStreams.join('') + `amix=inputs=${audioStreams.length}:normalize=0[${amixLabel}]`
+      );
+      outputMappings.push(`[${amixLabel}]`);
+    } else if (audioStreams.length === 1) {
+      outputMappings.push(audioStreams[0]);
+    }
+    const finalFilter = filterParts.join('; ');
+    const outputPath  = path.join(ensureExportDir(), `${jobId}.mp4`);
 
     // ── Build ffmpeg command ───────────────────────────────────────────────
 
@@ -245,31 +270,12 @@ async function runExport(
     cmd = cmd.input(`color=${bg.replace('#', '')}:s=${cW}x${cH}:r=${fps}`)
              .inputOptions(['-f', 'lavfi']);
 
-    cmd = cmd.complexFilter(filterComplex);
+    // Normalise all audio to 44100 Hz before adelay so delay samples are correct
+    cmd = cmd.complexFilter(finalFilter);
 
-    const outputMaps = [`[${prevVideo}]`];
-    if (audioStreams.length > 1) {
-      filterParts; // already added amix — handled below
-    }
-
-    // Map video output
-    cmd = cmd.outputOptions([`-map [${prevVideo}]`]);
-
-    // Map audio (mix if multiple streams)
-    if (audioStreams.length === 1) {
-      cmd = cmd.outputOptions([`-map ${audioStreams[0]}`]);
-    } else if (audioStreams.length > 1) {
-      // We need to add amix to the filter — but we already built filterComplex.
-      // Rebuild with amix appended.
-      const amixFilter = audioStreams.join('') + `amix=inputs=${audioStreams.length}:normalize=0[amix]`;
-      // Re-apply complex filter with amix
-      cmd = ffmpeg();
-      for (const p of assetPaths) cmd = cmd.input(p);
-      cmd = cmd.input(`color=${bg.replace('#', '')}:s=${cW}x${cH}:r=${fps}`)
-               .inputOptions(['-f', 'lavfi']);
-      const finalFilter = [...filterParts, amixFilter].join('; ');
-      cmd = cmd.complexFilter(finalFilter)
-               .outputOptions([`-map [${prevVideo}]`, '-map [amix]']);
+    // Map all output streams
+    for (const m of outputMappings) {
+      cmd = cmd.outputOptions([`-map ${m}`]);
     }
 
     // Video + audio codec options
@@ -306,7 +312,8 @@ async function runExport(
     const j = jobs.get(jobId)!;
     j.status = 'error';
     j.error  = err instanceof Error ? err.message : String(err);
-    console.error('[export] Job failed:', j.error);
+    // Auto-evict errored jobs after 30 minutes so the Map doesn't grow unbounded
+    setTimeout(() => jobs.delete(jobId), 30 * 60 * 1000);
   }
 }
 
@@ -317,10 +324,31 @@ function timemarkToSec(timemark: string): number {
 
 // ── Route handlers ─────────────────────────────────────────────────────────
 
+const VALID_RESOLUTIONS = new Set(['480p', '720p', '1080p', '4k']);
+
 export function triggerExport(req: Request, res: Response, next: NextFunction): void {
   try {
     const projectId = String(req.params.projectId);
-    const opts      = req.body as ExportJobOptions;
+    const body      = req.body as Record<string, unknown>;
+
+    // Validate export options at the system boundary
+    const resolution = String(body.resolution ?? '1080p');
+    if (!VALID_RESOLUTIONS.has(resolution)) {
+      res.status(400).json({ error: `Invalid resolution. Must be one of: ${[...VALID_RESOLUTIONS].join(', ')}` });
+      return;
+    }
+    const fps     = safeNum(body.fps, 30, 1, 120);
+    const quality = safeNum(body.quality, 80, 0, 100);
+    const includeAudio = body.includeAudio !== false;
+
+    const opts: ExportJobOptions = {
+      resolution: resolution as ExportJobOptions['resolution'],
+      fps,
+      quality,
+      includeAudio,
+      startTimeMs: body.startTimeMs != null ? safeNum(body.startTimeMs, 0, 0, Infinity) : undefined,
+      endTimeMs:   body.endTimeMs   != null ? safeNum(body.endTimeMs,   0, 0, Infinity) : undefined,
+    };
 
     const jobId: string = nanoid();
     const job: ExportJobStatus = {
@@ -341,7 +369,9 @@ export function triggerExport(req: Request, res: Response, next: NextFunction): 
 }
 
 export function getExportStatus(req: Request, res: Response): void {
-  const job = jobs.get(String(req.params.jobId));
+  const jobId = String(req.params.jobId);
+  if (!isValidJobId(jobId)) { res.status(400).json({ error: 'Invalid job ID' }); return; }
+  const job = jobs.get(jobId);
   if (!job) {
     res.status(404).json({ error: 'Job not found' });
     return;
@@ -358,18 +388,18 @@ export function getExportStatus(req: Request, res: Response): void {
 
 export function downloadExport(req: Request, res: Response, next: NextFunction): void {
   const jobId = String(req.params.jobId);
-  const job   = jobs.get(jobId);
-  const filePath = job?.outputPath ?? path.join(
-    process.env.EXPORT_DIR ?? './exports',
-    `${path.basename(jobId)}.mp4`,
-  );
+  if (!isValidJobId(jobId)) { res.status(400).json({ error: 'Invalid job ID' }); return; }
+  const job      = jobs.get(jobId);
+  const filePath = job?.outputPath;
 
-  if (!job || job.status !== 'done' || !fs.existsSync(filePath)) {
+  if (!job || job.status !== 'done' || !filePath || !fs.existsSync(filePath)) {
     res.status(404).json({ error: 'Export file not found or not ready' });
     return;
   }
 
   res.download(filePath, `export_${jobId}.mp4`, (err) => {
-    if (err) next(err);
+    if (err) { next(err); return; }
+    // Clean up in-memory job record once the file has been sent
+    jobs.delete(jobId);
   });
 }
